@@ -11,23 +11,18 @@ import {
 } from "firebase/firestore";
 
 const AdminPendingPage = ({ changePage }) => {
-
   const [items, setItems] = useState([]);
 
   const loadPendingAdmin = async () => {
-    // Only items approved by moderator
     const q = query(
       collection(db, "culturalItems"),
       where("status", "==", "pending_admin")
     );
-
     const snapshot = await getDocs(q);
-
     const list = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
-
     setItems(list);
   };
 
@@ -35,61 +30,137 @@ const AdminPendingPage = ({ changePage }) => {
     loadPendingAdmin();
   }, []);
 
-  // PUBLISH (Admin approves for public)
   const publishItem = async (id) => {
     await updateDoc(doc(db, "culturalItems", id), {
       status: "posted",
       publishedAt: serverTimestamp()
     });
-
     alert("Item published");
     loadPendingAdmin();
   };
 
-  // REJECT (Admin rejects permanently)
   const rejectItem = async (id) => {
     const reason = prompt("Reason for rejection:");
-
     if (!reason) {
       alert("Rejection reason is required.");
       return;
     }
-
     await updateDoc(doc(db, "culturalItems", id), {
       status: "rejected",
       adminNote: reason,
       reviewedAt: serverTimestamp()
     });
-
     alert("Item rejected");
     loadPendingAdmin();
   };
 
   return (
-    <div>
-      <h2>Submissions Awaiting Admin Approval</h2>
+    <div
+      style={{
+        backgroundColor: "#800000",
+        color: "white",
+        minHeight: "100vh",
+        padding: "90px 20px 20px 20px",
+        fontFamily: "Arial, sans-serif"
+      }}
+    >
+      <h2 style={{ fontSize: "2em", marginBottom: "20px" }}>
+        Submissions Awaiting Admin Approval
+      </h2>
 
-      {items.length === 0 && <p>No items waiting for admin approval.</p>}
+      {items.length === 0 && (
+        <p style={{ fontSize: "1.2em" }}>No items waiting for admin approval.</p>
+      )}
 
-      {items.map(item => (
-        <div key={item.id} style={{border:"1px solid black", margin:"10px", padding:"10px"}}>
-          <p><b>Title:</b> {item.title}</p>
-          <p><b>Category:</b> {item.category}</p>
-          <p><b>Description:</b> {item.description}</p>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+          gap: "20px"
+        }}
+      >
+        {items.map(item => (
+          <div
+            key={item.id}
+            style={{
+              backgroundColor: "white",
+              color: "#800000",
+              borderRadius: "10px",
+              padding: "15px",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "space-between",
+              minHeight: "220px",
+              boxShadow: "0 3px 6px rgba(0,0,0,0.2)",
+              transition: "transform 0.3s, box-shadow 0.3s",
+              cursor: "pointer"
+            }}
+          >
+            <div>
+              <h3 style={{ margin: "0 0 10px 0" }}>{item.title}</h3>
+              <p style={{ margin: "0 0 5px 0" }}><b>Category:</b> {item.category}</p>
+              <p style={{ margin: "0 0 10px 0" }}>{item.description}</p>
+            </div>
 
-          <button onClick={() => publishItem(item.id)}>
-            Publish
-          </button>
+            <div style={{ display: "flex", gap: "10px", marginTop: "auto" }}>
+              <button
+                onClick={() => publishItem(item.id)}
+                style={{
+                  flex: 1,
+                  backgroundColor: "white",
+                  color: "#800000",
+                  padding: "8px",
+                  fontWeight: "bold",
+                  borderRadius: "5px",
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "all 0.3s"
+                }}
+                onMouseEnter={e => { e.target.style.backgroundColor = "#b30000"; e.target.style.color = "white"; }}
+                onMouseLeave={e => { e.target.style.backgroundColor = "white"; e.target.style.color = "#800000"; }}
+              >
+                Publish
+              </button>
 
-          <button onClick={() => rejectItem(item.id)}>
-            Reject
-          </button>
-        </div>
-      ))}
+              <button
+                onClick={() => rejectItem(item.id)}
+                style={{
+                  flex: 1,
+                  backgroundColor: "white",
+                  color: "#800000",
+                  padding: "8px",
+                  fontWeight: "bold",
+                  borderRadius: "5px",
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "all 0.3s"
+                }}
+                onMouseEnter={e => { e.target.style.backgroundColor = "#b30000"; e.target.style.color = "white"; }}
+                onMouseLeave={e => { e.target.style.backgroundColor = "white"; e.target.style.color = "#800000"; }}
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
 
-      <br />
-
-      <button onClick={() => changePage("dashboard")}>
+      <button
+        onClick={() => changePage("dashboard")}
+        style={{
+          marginTop: "30px",
+          backgroundColor: "white",
+          color: "#800000",
+          padding: "12px 20px",
+          fontWeight: "bold",
+          borderRadius: "8px",
+          cursor: "pointer",
+          border: "none",
+          transition: "all 0.3s"
+        }}
+        onMouseEnter={e => { e.target.style.backgroundColor = "#b30000"; e.target.style.color = "white"; }}
+        onMouseLeave={e => { e.target.style.backgroundColor = "white"; e.target.style.color = "#800000"; }}
+      >
         Back to Dashboard
       </button>
     </div>
