@@ -1,0 +1,196 @@
+/* GLOBAL PAGE LAYOUT */
+
+.page-container{
+    background-color:#800000;
+    color:white;
+    min-height:100vh;
+    padding:90px 20px 20px 20px;
+    font-family:Arial, sans-serif;
+  }
+  
+  .page-title{
+    font-size:2em;
+    margin-bottom:20px;
+  }
+  
+  /* GRID SYSTEM */
+  
+  .cards-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+    gap:20px;
+  }
+  
+  .cards-grid-4{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:20px;
+  }
+  
+  /* CARD DESIGN */
+  
+  .card{
+    background:white;
+    color:#800000;
+    border-radius:10px;
+    padding:15px;
+    box-shadow:0 3px 6px rgba(0,0,0,0.2);
+    transition:transform .3s, box-shadow .3s;
+  }
+  
+  .card-hover{
+    cursor:pointer;
+  }
+  
+  .card-hover:hover{
+    transform:translateY(-5px);
+    box-shadow:0 8px 20px rgba(0,0,0,0.3);
+  }
+  
+  /* BUTTONS */
+  
+  .primary-button{
+    background:white;
+    color:#800000;
+    padding:10px 14px;
+    border:none;
+    border-radius:5px;
+    font-weight:bold;
+    cursor:pointer;
+    transition:all .3s;
+  }
+  
+  .primary-button:hover{
+    background:#b30000;
+    color:white;
+  }
+  
+  .full-button{
+    margin-top:30px;
+    padding:12px 20px;
+    border-radius:8px;
+  }
+  
+  /* FLEX ROW (for approve/reject buttons) */
+  
+  .button-row{
+    display:flex;
+    gap:15px;
+    margin-top:auto;
+  }
+  
+  /* SIMPLE CARD (bookmark page) */
+  
+  .simple-card{
+    background:white;
+    color:#800000;
+    padding:15px;
+    margin:10px 0;
+    border-radius:8px;
+  }
+
+  /* ITEM DETAIL PAGE */
+
+.detail-card {
+    background: white;
+    color: #800000;
+    border-radius: 10px;
+    padding: 20px;
+    max-width: 800px;
+    margin: 0 auto;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+  }
+  
+  .detail-card h2 {
+    font-size: 2em;
+    margin-bottom: 15px;
+  }
+  
+  .detail-card img {
+    width: 300px;
+    border-radius: 8px;
+    display: block;
+    margin: 15px auto;
+  }
+  
+  .detail-card a {
+    color: #800000;
+    font-weight: bold;
+    text-decoration: underline;
+  }
+  
+  .bookmark-button {
+    font-size: 1.1em;
+    margin-top: 20px;
+    padding: 10px 20px;
+    border-radius: 5px;
+    background-color: #800000;
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  
+  .detail-card button.back-button {
+    margin-top: 25px;
+    background-color: white;
+    color: #800000;
+    padding: 12px 20px;
+    border-radius: 5px;
+    font-weight: bold;
+    cursor: pointer;
+    border: none;
+    transition: all .3s;
+  }
+  
+  .detail-card button.back-button:hover {
+    background-color: #b30000;
+    color: white;
+  }
+
+  /* TABLE STYLING */
+.table-container {
+    overflow-x: auto;
+    margin-bottom: 20px;
+  }
+  
+  .styled-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    color: #800000;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+  }
+  
+  .styled-table th, .styled-table td {
+    padding: 12px 15px;
+    text-align: left;
+  }
+  
+  .styled-table th {
+    background-color: #b30000;
+    color: white;
+  }
+  
+  .styled-table tr:nth-child(even) {
+    background-color: #f2f2f2;
+  }
+  
+  .styled-table tr:hover {
+    background-color: #ffe6e6;
+  }
+
+  /* FORM INPUTS */
+.form-input {
+    display: block;
+    width: 100%;
+    max-width: 700px;
+    padding: 10px;
+    margin: 10px 0 20px 0;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+    font-size: 1em;
+    box-sizing: border-box;
+  }
