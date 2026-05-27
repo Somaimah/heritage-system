@@ -1,0 +1,38 @@
+{
+  "sidebar": {
+    "culturalItems": "Mga Kultural na Bagay",
+    "proverb": "Pananaro-on",
+    "bookmarks": "Bookmarks",
+    "notifications": "Notifications"
+  },
+  "userDashboard": {
+    "wordOfDay": "Katharo sa alongan",
+    "noWord": "Awaiting today’s cultural word...",
+    "searchPlaceholder": "Pangilay...",
+    "catAll": "Lahat ng Kategorya",
+    "catArtifact": "Artifact",
+    "catPublication": "Publication",
+    "catHistorical": "Historical Records",
+    "noItems": "No cultural items found matching your search.",
+    "noImage": "No Item Image",
+    "uncategorized": "Uncategorized",
+    "viewBtn": "Explore",
+    "paginationShowing": "Showing",
+    "paginationOf": "of",
+    "btnFeedback": "Send System Feedback",
+    "feedbackTitle": "System Feedback",
+    "feedbackCategory": "Category",
+    "feedbackTypeComment": "Comment",
+    "feedbackTypeBug": "Bug",
+    "feedbackTypeSuggestion": "Suggestion",
+    "feedbackPlaceholder": "Describe your feedback details here...",
+    "btnCancel": "Cancel",
+    "btnSubmitFeedback": "Submit Feedback",
+    "errorAuth": "You must be logged in to bookmark.",
+    "bookmarkRemoved": "Bookmark removed.",
+    "bookmarkAdded": "Item saved to bookmarks!",
+    "feedbackEmpty": "Please enter a message before submitting.",
+    "feedbackSuccess": "Thank you! Your feedback has been sent.",
+    "feedbackError": "Failed to submit feedback. Check your connection."
+  }
+}

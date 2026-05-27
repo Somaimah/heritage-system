@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { db, auth } from "../../firebase/firebase";
+import okirPattern from "../../assets/okir-pattern.png";
+import Loader from "../../components/Loader";
+
+// Context & Components
+import { useToast } from "../../components/ToastContext"; // Ensure path is correct
+import ConfirmationModal from "../../components/ConfirmationModal";
 
 import {
   doc,
@@ -14,61 +20,78 @@ import {
 } from "firebase/firestore";
 
 import {
-  LogOut,
   Bookmark,
   FileText,
-  Eye,
   X,
   CheckCircle,
-  XCircle,
   RotateCcw,
   Edit,
-  ArrowLeft,
-  Trash2 // <--- Added Trash2 icon
+  Trash2,
+  Eye,
+  Calendar,
+  Hammer
 } from "lucide-react";
 
-import { signOut } from "firebase/auth";
+const InfoCard = ({ label, value, icon: Icon }) => (
+  <div className="bg-gray-50/60 border border-gray-100 rounded-2xl p-4 transition-all duration-300 hover:bg-white hover:shadow-[0_4px_20px_-4px_rgba(74,12,22,0.05)]">
+    <div className="flex items-center gap-2 mb-1.5">
+      {Icon && <Icon size={12} className="text-[#E09F26]" />}
+      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{label}</p>
+    </div>
+    <p className="font-semibold text-gray-800 text-sm leading-relaxed">{value || "Not specified"}</p>
+  </div>
+);
 
 const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
+  const { showToast } = useToast();
   const [item, setItem] = useState(null);
   const [bookmarked, setBookmarked] = useState(false);
   const [previewImage, setPreviewImage] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // ================= LOAD ITEM (REAL-TIME LISTENER) =================
+  // --- MODAL STATE ---
+  const [confirmConfig, setConfirmConfig] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "warning",
+    confirmText: "",
+    onConfirm: () => {},
+  });
+
+  const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
+
+  const targetCollection = "culturalItems";
+
+  // ================= LOAD ITEM =================
   useEffect(() => {
     if (!itemId) return;
-
-    const itemRef = doc(db, "culturalItems", itemId);
+    const itemRef = doc(db, targetCollection, itemId);
 
     const unsubscribe = onSnapshot(itemRef, (snap) => {
       if (snap.exists()) {
         setItem({ id: snap.id, ...snap.data() });
       } else {
-        alert("Item not found or has been deleted.");
+        showToast("The requested heritage item could not be found.", "error");
         changePage(fromPage ? fromPage : "dashboard");
       }
       setLoading(false);
     }, (err) => {
-      console.error("LOAD ITEM ERROR:", err);
-      alert(err.message);
+      showToast("Error synchronizing data: " + err.message, "error");
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [itemId, changePage, fromPage]);
+  }, [itemId, changePage, fromPage, showToast]);
 
-  // ================= USER FEATURES (BOOKMARK CHECK & VIEW COUNT) =================
+  // ================= VIEW & BOOKMARK LOGIC =================
   useEffect(() => {
-    if (role === "user" && itemId) {
+    if (role === "user" && itemId && item?.status === "posted") {
       const incrementView = async () => {
         try {
-          const itemRef = doc(db, "culturalItems", itemId);
-          await updateDoc(itemRef, { viewCount: increment(1) });
-        } catch (err) {
-          console.error("View count error:", err);
-        }
+          await updateDoc(doc(db, targetCollection, itemId), { viewCount: increment(1) });
+        } catch (err) { console.error("View count error:", err); }
       };
       incrementView();
     }
@@ -76,381 +99,336 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
     const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
       if (user && role === "user" && itemId) {
         try {
-          const bookmarkId = `${user.uid}_${itemId}`;
-          const bookmarkRef = doc(db, "bookmarks", bookmarkId);
+          const bookmarkRef = doc(db, "bookmarks", `${user.uid}_${itemId}`);
           const bookmarkSnap = await getDoc(bookmarkRef);
-          if (bookmarkSnap.exists()) {
-            setBookmarked(true);
-          }
-        } catch (err) {
-          console.error("Bookmark check error:", err);
-        }
+          if (bookmarkSnap.exists()) setBookmarked(true);
+        } catch (err) { console.error("Bookmark check error:", err); }
       }
     });
 
     return () => unsubscribeAuth();
-  }, [itemId, role]);
+  }, [itemId, role, item?.status]);
 
-  // ================= BOOKMARK TOGGLE =================
-  const toggleBookmark = async () => {
+  // ================= FIREBASE EXECUTORS =================
+  const executeStatusChange = async (newStatus, requiresFeedback = false) => {
     try {
-      if (!auth.currentUser) {
-        alert("Login required");
-        return;
+      const updateData = { 
+        status: newStatus, 
+        feedback: requiresFeedback ? feedback : "",
+        isDeleted: false,
+        updatedAt: serverTimestamp() 
+      };
+      
+      if (newStatus === "posted") updateData.postedAt = serverTimestamp();
+
+      await updateDoc(doc(db, targetCollection, item.id), updateData);
+
+      // 1. Notify Encoder
+      const encoderId = item.encoderId || item.createdBy;
+      if (encoderId) {
+        await setDoc(doc(collection(db, "notifications")), {
+          userId: encoderId,
+          message: `Your entry "${item.title || item.term}" status updated to: ${newStatus.toUpperCase()}`,
+          itemId: item.id,
+          createdAt: serverTimestamp(),
+          read: false,
+          isReadBy: [] 
+        });
       }
 
+      // 2. Notify Admin
+      if (role === "moderator" && newStatus === "validated") {
+        await setDoc(doc(collection(db, "notifications")), {
+          targetRole: "admin", 
+          role: "admin", 
+          message: `Review required: Moderator validated "${item.title || item.term}".`,
+          itemId: item.id,
+          type: "validation_request",
+          createdAt: serverTimestamp(),
+          read: false,
+          isReadBy: [] 
+        });
+      }
+
+      showToast(`Record status updated to ${newStatus} successfully.`, "success");
+      changePage(fromPage ? fromPage : "dashboard");
+    } catch (err) { 
+      showToast("Update Failed: " + err.message, "error"); 
+    }
+  };
+
+  const executeDelete = async () => {
+    try {
+      await updateDoc(doc(db, targetCollection, item.id), {
+        isDeleted: true,
+        deletedAt: serverTimestamp(),
+        deletedBy: auth.currentUser?.uid || role,
+      });
+      showToast("Item successfully moved to Recycle Bin.", "success");
+      changePage(fromPage ? fromPage : "dashboard");
+    } catch (err) { 
+      showToast("Delete Failed: " + err.message, "error"); 
+    }
+  };
+
+  const executeRestore = async () => {
+    try {
+      await updateDoc(doc(db, targetCollection, item.id), {
+        isDeleted: false,
+        restoredAt: serverTimestamp()
+      });
+      showToast("Item restored to active records.", "success");
+    } catch (err) { 
+      showToast("Restoration Failed: " + err.message, "error"); 
+    }
+  };
+
+  const toggleBookmark = async () => {
+    try {
+      if (!auth.currentUser) return showToast("You must be logged in to save items.", "info");
       const bookmarkId = `${auth.currentUser.uid}_${item.id}`;
       const bookmarkRef = doc(db, "bookmarks", bookmarkId);
 
       if (bookmarked) {
         await deleteDoc(bookmarkRef);
         setBookmarked(false);
+        showToast("Removed from your collection.", "info");
       } else {
         await setDoc(bookmarkRef, {
           userId: auth.currentUser.uid,
           itemId: item.id,
+          itemType: "cultural",
           title: item.title || "",
           imageUrl: item.imageUrl || "",
           createdAt: serverTimestamp()
         });
         setBookmarked(true);
+        showToast("Saved to your collection!", "success");
       }
-    } catch (err) {
-      console.error("BOOKMARK ERROR:", err);
-      alert(err.message);
+    } catch (err) { 
+      showToast("Bookmark Action Failed: " + err.message, "error"); 
     }
   };
 
-  // ================= ADMIN: DELETE ITEM =================
-  const handleDeleteItem = async () => {
-    const isConfirmed = window.confirm("Are you sure you want to permanently delete this item? This action cannot be undone.");
-    if (isConfirmed) {
-      try {
-        await deleteDoc(doc(db, "culturalItems", item.id));
-        alert("Item successfully deleted from the system.");
-        changePage(fromPage ? fromPage : "dashboard");
-      } catch (err) {
-        console.error("DELETE ERROR:", err);
-        alert("Failed to delete item: " + err.message);
-      }
+  // ================= MODAL TRIGGERS =================
+  const triggerStatusChange = (newStatus, requiresFeedback = false) => {
+    if (requiresFeedback && !feedback.trim()) {
+      return showToast("Please provide feedback for the encoder.", "error");
     }
+    
+    let config = { isOpen: true, onConfirm: () => executeStatusChange(newStatus, requiresFeedback) };
+
+    if (newStatus === "posted") {
+      config.title = "Publish to Live";
+      config.message = "Are you sure you want to publish this heritage entry to the public archive?";
+      config.type = "security";
+      config.confirmText = "Publish Now";
+    } else if (newStatus === "validated") {
+      config.title = "Verify Entry";
+      config.message = "Are you sure you want to validate this entry and send it to the admin for final approval?";
+      config.type = "security";
+      config.confirmText = "Verify & Forward";
+    } else if (newStatus === "returned") {
+      config.title = "Return to Encoder";
+      config.message = "Are you sure you want to return this entry to the encoder for corrections?";
+      config.type = "warning";
+      config.confirmText = "Return Entry";
+    }
+
+    setConfirmConfig(config);
   };
 
-  // ================= DYNAMIC STATUS UPDATER =================
-  const handleStatusChange = async (newStatus, requiresFeedback = false) => {
-    try {
-      if (requiresFeedback && !feedback.trim()) {
-        alert("Please provide a reason/comment in the feedback box.");
-        return;
-      }
-
-      const updateData = { status: newStatus };
-      
-      if (requiresFeedback) {
-        updateData.feedback = feedback;
-      } else {
-        updateData.feedback = ""; 
-      }
-
-      if (newStatus === "posted") {
-        updateData.postedAt = serverTimestamp();
-      }
-
-      await updateDoc(doc(db, "culturalItems", item.id), updateData);
-
-      if (item.encoderId) {
-        const actionText = 
-          newStatus === "validated" ? "approved by Moderator" :
-          newStatus === "posted" ? "approved and posted by Admin" :
-          newStatus === "returned" ? `returned. Feedback: ${feedback}` :
-          newStatus === "rejected" ? `rejected. Reason: ${feedback}` :
-          "updated status";
-
-        const notifRef = doc(collection(db, "notifications"));
-        await setDoc(notifRef, {
-          userId: item.encoderId,
-          message: `Your item "${item.title}" was ${actionText}.`,
-          itemId: item.id,
-          createdAt: serverTimestamp(),
-          read: false
-        });
-      }
-
-      alert(`Item successfully marked as ${newStatus}`);
-      changePage(fromPage ? fromPage : "dashboard");
-
-    } catch (err) {
-      console.error("STATUS UPDATE ERROR:", err);
-      alert(err.message);
-    }
+  const triggerDelete = () => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Move to Recycle Bin",
+      message: "Are you sure you want to move this entry to the Recycle Bin? It will be removed from the public archive.",
+      type: "danger",
+      confirmText: "Move to Trash",
+      onConfirm: executeDelete
+    });
   };
 
-  // ================= LOGOUT =================
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      changePage("landing");
-    } catch (err) {
-      console.error(err);
-    }
+  const triggerRestore = () => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Restore Entry",
+      message: "Are you sure you want to restore this item back to the active records?",
+      type: "restore",
+      confirmText: "Restore Item",
+      onConfirm: executeRestore
+    });
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#f5f5dc] flex items-center justify-center">
-        <div className="text-[#800000] text-xl font-bold animate-pulse">Loading Item Details...</div>
-      </div>
-    );
-  }
+  if (loading) return <Loader size="md" />;
+  if (!item) return <div className="text-center p-20 font-serif text-[#4A0C16]">Heritage Entry Not Found</div>;
 
-  if (!item) {
-    return (
-      <div className="min-h-screen bg-[#f5f5dc] flex items-center justify-center">
-        <div className="text-red-600 text-xl font-bold">Item not found or has been deleted</div>
-      </div>
-    );
-  }
-
-  // ================= DETERMINE VISIBLE CONTROLS & STATS =================
-  const isValidationMode = 
-    (role === "moderator" && item.status === "pending") || 
-    (role === "admin" && item.status === "validated");
-
-  const isReturnedMode = role === "encoder" && item.status === "returned";
+  // ================= PERMISSIONS =================
+  const isValidationMode = (role === "moderator" && item.status === "pending") || (role === "admin" && (item.status === "validated" || item.status === "pending"));
+  const canEdit = (role === "encoder" || role === "admin") && (item.status === "returned" || item.status === "pending");
+  const canDelete = role === "admin"; 
   const hideInternalStats = role === "user" || role === "guest" || fromPage === "overview";
+  const hasFeedback = feedback.trim().length > 0;
 
   return (
-    <div className="min-h-screen bg-[#f5f5dc]">
-      <header className="bg-[#800000] text-white px-8 py-5 flex justify-between items-center shadow-lg">
-        <h1 className="text-2xl font-bold">Cultural Heritage Details</h1>
-        {role !== "guest" && fromPage !== "overview" && (
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 bg-[#D4A017] px-4 py-2 rounded-lg hover:opacity-90 transition font-semibold"
-          >
-            <LogOut size={18} /> Logout
+    <div className="min-h-screen bg-[#FEF9C3] font-sans antialiased pb-12">
+      <div className="w-full h-8 bg-[#E09F26] border-b border-[#4A0C16]/30 shadow-sm" style={{ backgroundImage: `url(${okirPattern})`, backgroundRepeat: 'repeat-x', backgroundSize: 'auto 100%' }} />
+      
+      <header className="bg-[#4A0C16] text-white px-8 py-6 flex items-center shadow-md">
+        <div className="max-w-7xl w-full mx-auto flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold font-serif tracking-wide">Heritage Detail</h1>
+            <p className="text-[10px] text-[#E09F26] uppercase tracking-widest font-semibold mt-0.5">MCHC Digital Archive</p>
+          </div>
+          <button onClick={() => changePage(fromPage || "dashboard")} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+            <X size={24} />
           </button>
-        )}
+        </div>
       </header>
 
-      <div className="max-w-7xl mx-auto p-6">
-        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-          <div className="grid lg:grid-cols-2 gap-10 p-8">
+      <div className="max-w-7xl mx-auto p-4 md:p-8 animate-fadeIn">
+        <div className="bg-white rounded-3xl shadow-xl border border-[#E09F26]/10 overflow-hidden">
+          <div className="grid lg:grid-cols-2 gap-8 p-6 md:p-10">
             
-            {/* ================= LEFT SIDE (MEDIA) ================= */}
-            <div>
-              <div
-                className="relative overflow-hidden rounded-2xl border bg-gray-100 cursor-zoom-in group shadow-inner"
-                onClick={() => setPreviewImage(true)}
-              >
+            {/* LEFT COLUMN: VISUALS */}
+            <div className="space-y-8">
+              <div className="relative overflow-hidden rounded-2xl border bg-gray-50 cursor-zoom-in group shadow-inner" onClick={() => setPreviewImage(true)}>
                 {item.imageUrl ? (
-                  <>
-                    <img
-                      src={item.imageUrl}
-                      alt={item.title}
-                      className="w-full h-[550px] object-cover transition-transform duration-500 group-hover:scale-105"
-                    />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition duration-300" />
-                    <div className="absolute bottom-4 right-4 bg-white/90 text-gray-800 font-semibold px-4 py-2 rounded-full text-sm flex items-center gap-2 opacity-0 group-hover:opacity-100 transition shadow-lg">
-                      <Eye size={16} /> Preview Full Image
-                    </div>
-                  </>
+                  <img src={item.imageUrl} alt="media" className="w-full h-[520px] object-cover transition-transform group-hover:scale-105" />
                 ) : (
-                  <div className="h-[550px] flex items-center justify-center text-gray-400 bg-gray-50">
-                    No Image Available
+                  <div className="h-[520px] flex flex-col items-center justify-center text-gray-400 gap-2">
+                    <FileText size={48} className="text-gray-200" />
+                    <span className="text-xs font-bold uppercase tracking-widest">Visual Data Missing</span>
                   </div>
                 )}
               </div>
 
               {item.fileUrl && (
-                <div className="mt-8">
-                  <div className="flex items-center gap-2 text-[#800000] font-bold text-xl mb-4">
-                    <FileText /> Document Viewer
+                <div className="pt-2">
+                  <div className="flex items-center gap-2 text-[#4A0C16] font-bold text-lg mb-4 font-serif">
+                    <FileText size={20} className="text-[#E09F26]" /> 
+                    Reference Document
                   </div>
-                  <div className="border rounded-2xl overflow-hidden shadow-md">
-                    <iframe
-                      src={item.fileUrl}
-                      title="PDF Reader"
-                      className="w-full h-[600px] bg-gray-50"
-                    />
-                  </div>
+                  <iframe src={item.fileUrl} title="PDF Viewer" className="w-full h-[600px] border rounded-2xl bg-gray-50 shadow-sm" />
                 </div>
               )}
             </div>
 
-            {/* ================= RIGHT SIDE (INFO & ACTIONS) ================= */}
+            {/* RIGHT COLUMN: METADATA */}
             <div className="flex flex-col h-full">
-              <h2 className="text-4xl font-bold text-[#800000] leading-tight">
-                {item.title}
-              </h2>
-
-              <div className="flex flex-wrap gap-3 mt-4 mb-6">
-                <span className="bg-[#800000] text-white px-4 py-2 rounded-full text-sm font-medium shadow-sm">
-                  {item.category || "Unknown"}
-                </span>
-                
-                {!hideInternalStats && item.status && (
-                  <span className={`px-4 py-2 rounded-full text-sm font-medium shadow-sm capitalize text-white
-                    ${item.status === 'posted' ? 'bg-green-600' : 
-                      item.status === 'validated' ? 'bg-blue-600' : 
-                      item.status === 'returned' || item.status === 'rejected' ? 'bg-red-600' : 
-                      'bg-[#D4A017]'}`}
-                  >
-                    Status: {item.status}
-                  </span>
-                )}
+              <div className="mb-6">
+                 <h2 className="text-4xl font-bold font-serif text-[#4A0C16] leading-tight mb-3">{item.title}</h2>
+                 <div className="flex flex-wrap gap-2">
+                    <span className="bg-[#FEF9C3] text-[#4A0C16] px-3 py-1 rounded-lg text-[10px] font-black uppercase border border-[#E09F26]/30">{item.category}</span>
+                    {item.isDeleted && <span className="bg-red-600 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase">In Recycle Bin</span>}
+                 </div>
               </div>
-
-              <div className="mb-8">
-                <h3 className="text-xl font-bold text-[#800000] mb-3 border-b-2 border-gray-100 pb-2">Description</h3>
-                <div className="bg-[#fafafa] border border-gray-100 rounded-2xl p-5 whitespace-pre-wrap leading-relaxed text-gray-700 shadow-inner min-h-[150px]">
-                  {item.description || "No description available."}
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4 mb-8">
-                {item.origin && (
-                  <div className="bg-[#fafafa] border border-gray-100 rounded-xl p-4 shadow-sm">
-                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Origin</p>
-                    <p className="font-semibold text-gray-800">{item.origin}</p>
-                  </div>
-                )}
-                {item.author && (
-                  <div className="bg-[#fafafa] border border-gray-100 rounded-xl p-4 shadow-sm">
-                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Author</p>
-                    <p className="font-semibold text-gray-800">{item.author}</p>
-                  </div>
-                )}
-                {item.recordType && (
-                  <div className="bg-[#fafafa] border border-gray-100 rounded-xl p-4 shadow-sm">
-                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Record Type</p>
-                    <p className="font-semibold text-gray-800">{item.recordType}</p>
-                  </div>
-                )}
-                
-                {!hideInternalStats && item.status === "posted" && (
-                  <div className="bg-[#fafafa] border border-gray-100 rounded-xl p-4 shadow-sm">
-                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Total Views</p>
-                    <p className="font-semibold text-gray-800">{item.viewCount || 0}</p>
-                  </div>
-                )}
-              </div>
-
-              {isReturnedMode && item.feedback && (
-                <div className="mb-6 bg-red-50 border-l-4 border-red-600 p-5 rounded-r-xl">
-                  <h3 className="text-red-800 font-bold text-sm uppercase tracking-wide mb-2 flex items-center gap-2">
-                    <XCircle size={18}/> Moderator/Admin Feedback
-                  </h3>
-                  <p className="text-red-900 italic">"{item.feedback}"</p>
-                </div>
-              )}
-
-              {/* ================= DYNAMIC ACTION BUTTONS ================= */}
-              <div className="mt-auto flex flex-col gap-4 border-t pt-6 border-gray-200">
-                
-                {isValidationMode && (
-                  <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200">
-                    <h3 className="text-sm font-bold text-gray-700 uppercase tracking-widest mb-3">Validation Decision</h3>
-                    <textarea
-                      placeholder="Write comment/reason here (Required for Return or Reject)..."
-                      value={feedback}
-                      onChange={(e) => setFeedback(e.target.value)}
-                      className="w-full border border-gray-300 rounded-xl p-4 min-h-[100px] mb-4 focus:outline-none focus:border-[#800000]"
-                    />
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => handleStatusChange(role === "moderator" ? "validated" : "posted", false)}
-                        className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition flex justify-center items-center gap-2 shadow-md"
-                      >
-                        <CheckCircle size={18} /> Approve
-                      </button>
-                      
-                      {role === "moderator" ? (
-                        <button
-                          onClick={() => handleStatusChange("returned", true)}
-                          className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition flex justify-center items-center gap-2 shadow-md"
-                        >
-                          <RotateCcw size={18} /> Return to Encoder
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleStatusChange("rejected", true)}
-                          className="flex-1 bg-red-800 hover:bg-red-900 text-white font-bold py-3 rounded-xl transition flex justify-center items-center gap-2 shadow-md"
-                        >
-                          <XCircle size={18} /> Reject
-                        </button>
-                      )}
+              
+              <div className="space-y-6">
+                <section>
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-[#E09F26] mb-3 flex items-center gap-2">
+                        <div className="h-px bg-[#E09F26]/30 flex-1"></div> Narrative Description <div className="h-px bg-[#E09F26]/30 flex-1"></div>
+                    </h3>
+                    <div className="bg-gray-50/50 border border-gray-100 rounded-2xl p-6 whitespace-pre-wrap leading-relaxed text-gray-700 text-sm shadow-inner min-h-[120px]">
+                      {item.description || "Description pending archival update."}
                     </div>
-                  </div>
+                </section>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <InfoCard label="Era/Period" value={item.era} icon={Calendar} />
+                    <InfoCard label="Primary Material" value={item.material} icon={Hammer} />
+                    <InfoCard label="Geographic Origin" value={item.origin} icon={ArrowLeft} />
+                    <InfoCard label="Archivist/Author" value={item.author} icon={Edit} />
+                    {!hideInternalStats && item.status === "posted" && (
+                        <InfoCard label="Engagement" value={`${item.viewCount || 0} Views`} icon={Eye} />
+                    )}
+                </div>
+
+                {/* MODERATOR FEEDBACK SECTION */}
+                {item.status === "returned" && item.feedback && (
+                    <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl">
+                        <div className="flex items-center gap-2 text-red-700 font-bold text-xs uppercase mb-1">
+                            <RotateCcw size={14} /> Correction Required
+                        </div>
+                        <p className="text-red-800 text-sm italic">"{item.feedback}"</p>
+                    </div>
                 )}
 
-                {/* BOTTOM BUTTONS ROW */}
-                <div className="flex gap-3">
-                  
-                  {role === "user" && (
-                    <button
-                      onClick={toggleBookmark}
-                      className={`flex-1 py-3 rounded-xl text-white font-bold flex items-center justify-center gap-2 transition shadow-md ${
-                        bookmarked ? "bg-[#D4A017]" : "bg-[#800000] hover:bg-red-900"
-                      }`}
-                    >
-                      <Bookmark size={18} fill={bookmarked ? "currentColor" : "none"} />
-                      {bookmarked ? "Bookmarked" : "Bookmark Item"}
-                    </button>
-                  )}
+                {/* INTERACTIVE ACTIONS */}
+                <div className="pt-8 border-t border-gray-100 mt-auto">
+                    {isValidationMode && !item.isDeleted && (
+                        <div className="mb-6 space-y-4 bg-[#FEF9C3]/30 p-4 rounded-2xl border border-[#E09F26]/20">
+                            <textarea 
+                                placeholder="State specific reasons for returning..." 
+                                value={feedback} 
+                                onChange={(e) => setFeedback(e.target.value)} 
+                                className="w-full border-2 border-white rounded-xl p-4 text-sm focus:outline-none focus:border-[#E09F26] bg-white/80 shadow-sm transition-all" 
+                            />
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => triggerStatusChange(role === "moderator" ? "validated" : "posted", false)} 
+                                    disabled={hasFeedback}
+                                    className={`flex-1 font-bold py-4 rounded-xl text-xs uppercase flex justify-center items-center gap-2 transition-all ${hasFeedback ? 'bg-gray-200 text-gray-400' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-200'}`}
+                                >
+                                    <CheckCircle size={16} /> {role === "admin" ? "Publish to Live" : "Verify Entry"}
+                                </button>
+                                <button 
+                                    onClick={() => triggerStatusChange("returned", true)} 
+                                    className="flex-1 bg-amber-500 text-white hover:bg-amber-600 font-bold py-4 rounded-xl text-xs uppercase flex justify-center items-center gap-2 shadow-lg shadow-amber-100 transition-all"
+                                >
+                                    <RotateCcw size={16} /> Return to Encoder
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
-                  {isReturnedMode && (
-                     <button
-                        onClick={() => changePage("upload", { editItem: item })}
-                        className="flex-1 bg-[#D4A017] hover:opacity-90 text-white font-bold py-3 rounded-xl transition flex justify-center items-center gap-2 shadow-md"
-                      >
-                        <Edit size={18} /> Edit Item
-                      </button>
-                  )}
+                    <div className="flex flex-wrap gap-3">
+                        {role === "user" && !item.isDeleted && (
+                            <button onClick={toggleBookmark} className={`flex-1 py-4 px-6 rounded-2xl font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all ${bookmarked ? "bg-[#E09F26] text-[#4A0C16] scale-95" : "bg-[#4A0C16] text-white hover:bg-[#31080E]"}`}>
+                                <Bookmark size={16} fill={bookmarked ? "currentColor" : "none"} /> 
+                                {bookmarked ? "Item Saved" : "Save to Collection"}
+                            </button>
+                        )}
+                        
+                        {canEdit && !item.isDeleted && (
+                            <button onClick={() => changePage("upload", { editItem: item, itemType: "cultural" })} className="flex-1 bg-white text-[#4A0C16] border-2 border-[#4A0C16] font-bold py-4 rounded-2xl text-xs uppercase flex justify-center items-center gap-2 hover:bg-gray-50 transition-all">
+                                <Edit size={16} /> Edit Data
+                            </button>
+                        )}
+                        
+                        {canDelete && !item.isDeleted && (
+                            <button onClick={triggerDelete} className="flex-1 bg-red-50 text-red-600 border-2 border-red-100 font-bold py-4 rounded-2xl text-xs uppercase flex justify-center items-center gap-2 hover:bg-red-600 hover:text-white transition-all">
+                                <Trash2 size={16} /> Move to Trash
+                            </button>
+                        )}
 
-                  {/* ADMIN DELETE BUTTON (FIXED LOGIC HERE) */}
-                  {role === "admin" && item.status === "posted" && (
-                    <button
-                      onClick={handleDeleteItem}
-                      className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition flex justify-center items-center gap-2 shadow-md"
-                    >
-                      <Trash2 size={18} /> Delete Item
-                    </button>
-                  )}
-                  
-                  {/* UNIVERSAL BACK BUTTON */}
-                  <button
-                    onClick={() => changePage(fromPage ? fromPage : "dashboard")}
-                    className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-3 rounded-xl transition flex justify-center items-center gap-2 shadow-sm"
-                  >
-                    <ArrowLeft size={18} /> Back
-                  </button>
+                        {item.isDeleted && (
+                             <button onClick={triggerRestore} className="flex-1 bg-emerald-600 text-white font-bold py-4 rounded-2xl text-xs uppercase flex justify-center items-center gap-2 hover:bg-emerald-700 transition-all">
+                                <RotateCcw size={16} /> Restore Entry
+                             </button>
+                        )}
+                    </div>
                 </div>
-                
               </div>
             </div>
           </div>
         </div>
       </div>
 
+      {/* FULLSCREEN IMAGE OVERLAY */}
       {previewImage && item.imageUrl && (
-        <div
-          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-5 cursor-zoom-out backdrop-blur-sm"
-          onClick={() => setPreviewImage(false)}
-        >
-          <button
-            className="absolute top-6 right-6 bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition"
-            onClick={(e) => { e.stopPropagation(); setPreviewImage(false); }}
-          >
-            <X size={28} />
-          </button>
-          <img
-            src={item.imageUrl}
-            alt={item.title}
-            className="max-w-[95vw] max-h-[95vh] object-contain rounded-xl shadow-2xl"
-          />
+        <div className="fixed inset-0 z-[100] bg-[#4A0C16]/95 backdrop-blur-md flex items-center justify-center p-5 cursor-zoom-out animate-fadeIn" onClick={() => setPreviewImage(false)}>
+          <button className="absolute top-8 right-8 text-white hover:rotate-90 transition-transform"><X size={32} /></button>
+          <img src={item.imageUrl} alt="Archival Preview" className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" />
         </div>
       )}
+
+      {/* 🔐 UNIVERSAL CONFIRMATION MODAL */}
+      <ConfirmationModal 
+        isOpen={confirmConfig.isOpen} 
+        config={confirmConfig} 
+        onClose={closeConfirm} 
+      />
     </div>
   );
 };

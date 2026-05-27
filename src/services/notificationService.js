@@ -2,14 +2,12 @@ import {
   collection,
   addDoc,
   serverTimestamp,
-  getDocs,
-  query,
-  where
 } from "firebase/firestore";
-
 import { db } from "../firebase/firebase";
 
-// SEND TO SPECIFIC USER
+/**
+ * Sends a notification document to a single specific user account.
+ */
 export const sendNotification = async ({
   userId,
   message,
@@ -26,11 +24,16 @@ export const sendNotification = async ({
       createdAt: serverTimestamp()
     });
   } catch (err) {
-    console.error(err);
+    console.error("Failed to send individual notification:", err);
+    throw err;
   }
 };
 
-// SEND TO ROLE
+/**
+ * Broadcasts a notification to a specific role (e.g., "admin", "moderator", "user").
+ * UPDATED: Uses a dual-schema approach so it doesn't break older dashboards 
+ * while fully supporting the updated User dashboard logic.
+ */
 export const notifyRole = async ({
   role,
   message,
@@ -38,24 +41,25 @@ export const notifyRole = async ({
   itemId = ""
 }) => {
   try {
-    const q = query(
-      collection(db, "users"),
-      where("role", "==", role)
-    );
+    const roleLower = role.toLowerCase();
+    
+    await addDoc(collection(db, "notifications"), {
+      // --- NEW SCHEMA (For the User Dashboard we just fixed) ---
+      role: roleLower,
+      isReadBy: [],             
 
-    const snap = await getDocs(q);
+      // --- OLD SCHEMA (Restores the Moderator and Admin Dashboards) ---
+      targetRole: roleLower, 
+      read: false,              
 
-    for (const userDoc of snap.docs) {
-      await addDoc(collection(db, "notifications"), {
-        userId: userDoc.id,
-        message,
-        type,
-        itemId,
-        read: false,
-        createdAt: serverTimestamp()
-      });
-    }
+      // --- CORE DATA ---
+      message,
+      type,
+      itemId,
+      createdAt: serverTimestamp() 
+    });
   } catch (err) {
-    console.error(err);
+    console.error(`Failed to broadcast notification to role "${role}":`, err);
+    throw err; 
   }
 };

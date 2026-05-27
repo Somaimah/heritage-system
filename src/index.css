@@ -7,3 +7,12 @@ body {
   min-height: 100vh;
   background-color: #ECE8CF;
 }
+
+/* 💡 Add this for your custom Meranaw background pattern styling */
+@layer utilities {
+  .bg-okir-pattern {
+    background-repeat: repeat-x;
+    background-size: auto 100%;
+    background-position: center;
+  }
+}

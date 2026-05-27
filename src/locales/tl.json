@@ -1,0 +1,38 @@
+{
+  "sidebar": {
+    "culturalItems": "Mga Kultural na Bagay",
+    "proverb": "Salawikain",
+    "bookmarks": "Mga Na-save",
+    "notifications": "Mga Abiso"
+  },
+  "userDashboard": {
+    "wordOfDay": "Salita ng Araw",
+    "noWord": "Naghihintay ng kultural na salita para sa araw na ito...",
+    "searchPlaceholder": "Maghanap sa koleksyon...",
+    "catAll": "Lahat ng Kategorya",
+    "catArtifact": "Artipakto",
+    "catPublication": "Publikasyon",
+    "catHistorical": "Kasaysayan",
+    "noItems": "Walang nahanap na kultural na bagay sa iyong paghahanap.",
+    "noImage": "Walang Larawan",
+    "uncategorized": "Walang Kategorya",
+    "viewBtn": "Tuklasin",
+    "paginationShowing": "Ipinapakita",
+    "paginationOf": "ng",
+    "btnFeedback": "Magpadala ng Feedback sa Sistema",
+    "feedbackTitle": "Feedback sa Sistema",
+    "feedbackCategory": "Kategorya",
+    "feedbackTypeComment": "Komento",
+    "feedbackTypeBug": "Sira / Bug",
+    "feedbackTypeSuggestion": "Mungkahi",
+    "feedbackPlaceholder": "Ilarawan ang iyong feedback dito...",
+    "btnCancel": "Kanselahin",
+    "btnSubmitFeedback": "Isumite ang Feedback",
+    "errorAuth": "Kailangan mong mag-log in upang makapag-save.",
+    "bookmarkRemoved": "Inalis ang na-save na bagay.",
+    "bookmarkAdded": "Matagumpay na na-save ang bagay!",
+    "feedbackEmpty": "Mangyaring maglagay ng mensahe bago isumite.",
+    "feedbackSuccess": "Salamat! Naipadala na ang iyong feedback.",
+    "feedbackError": "Nabigong isumite ang feedback. Suriin ang iyong internet connection."
+  }
+}

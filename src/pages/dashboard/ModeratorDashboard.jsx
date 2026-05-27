@@ -1,377 +1,437 @@
-import React, { useEffect, useState } from "react";
-import {
-  collection,
+import React, { useEffect, useState, useMemo } from "react";
+import { auth, db } from "../../firebase/firebase";
+import { 
+  collection, 
+  onSnapshot, 
+  doc, 
+  updateDoc,
   query,
   where,
-  doc,
-  updateDoc,
-  serverTimestamp,
-  onSnapshot
+  or
 } from "firebase/firestore";
-
-import { db, auth } from "../../firebase/firebase";
-import { signOut } from "firebase/auth";
-import { notifyRole, sendNotification } from "../../services/notificationService";
-
-import {
-  BookOpen,
-  CheckCircle,
-  XCircle,
-  Clock,
-  LogOut,
-  User,
-  Bell,
-  Eye,
-  Archive,
-  Search // <--- Added Search icon
+import { 
+  Archive, Search, ChevronLeft, ChevronRight, Inbox, 
+  BookOpen, Clock, MessageSquare, ShieldCheck, Quote, Filter
 } from "lucide-react";
 
-const ModeratorDashboard = ({ user, changePage }) => {
-  const [tab, setTab] = useState("pending");
-  const [items, setItems] = useState([]);
-  const [feedbacks, setFeedbacks] = useState({});
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
+import { useToast } from "../../components/ToastContext";
+import MasterDashboardShell from "../../components/MasterDashboardShell";
+import ConfirmationModal from "../../components/ConfirmationModal"; // 🆕 Imported Confirmation Modal
 
-  // ================= SEARCH & FILTER STATE =================
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("All");
+const ModeratorDashboard = ({ changePage, triggerLogout }) => {
+  const { showToast } = useToast(); 
 
-  // ================= LOAD UNREAD NOTIFICATIONS =================
-  useEffect(() => {
-    if (!auth.currentUser) return;
+  const [tab, setTab] = useState("cultural_validation");
+  const [culturalItems, setCulturalItems] = useState([]);
+  const [proverbItems, setProverbItems] = useState([]); 
+  const [systemFeedbackList, setSystemFeedbackList] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0); 
+  const [brokenImages, setBrokenImages] = useState({});
 
-    const q = query(
-      collection(db, "notifications"),
-      where("userId", "==", auth.currentUser.uid),
-      where("read", "==", false)
-    );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
 
-    const unsub = onSnapshot(q, (snapshot) => {
-      setUnreadNotifications(snapshot.size);
-    });
-
-    return () => unsub();
-  }, []);
-
-  // ================= REAL-TIME ITEM LISTENER (ALL ITEMS FOR STATS) =================
-  useEffect(() => {
-    // Removed the "pending" filter here so we can count Posted and Returned for analytics
-    const unsub = onSnapshot(collection(db, "culturalItems"), (snapshot) => {
-      const list = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setItems(list);
-    });
-
-    return () => unsub();
-  }, []);
-
-  // ================= FILTERS & DERIVED DATA =================
-  const pendingItems = items.filter(i => i.status === "pending");
-  const postedItems = items.filter(i => i.status === "posted");
-  const returnedItems = items.filter(i => i.status === "returned");
-
-  // Extract dynamic categories for the dropdown
-  const categories = ["All", ...new Set(items.map(i => i.category).filter(Boolean))];
-
-  // Search & Filter Logic
-  const filterFunction = (item) => {
-    const matchesSearch = 
-      item.title?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      item.description?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === "All" || item.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  };
-
-  const filteredPendingItems = pendingItems.filter(filterFunction);
-  const filteredPostedItems = postedItems.filter(filterFunction);
-
-  // ================= APPROVE =================
-  const approveItem = async (id) => {
-    try {
-      const item = items.find(i => i.id === id);
+  const isProverbView = tab === "published_proverbs" || tab === "proverb_validation";
   
-      await updateDoc(doc(db, "culturalItems", id), {
-        status: "validated",
-        reviewedBy: auth.currentUser.uid,
-        reviewedAt: serverTimestamp()
-      });
-  
-      await notifyRole({
-        role: "admin",
-        message: `New validated item ready for approval: ${item.title}`,
-        type: "validated",
-        itemId: id
-      });
-  
-      await sendNotification({
-        userId: item.createdBy,
-        message: `Your item "${item.title}" passed moderator validation`,
-        type: "validated",
-        itemId: id
-      });
-  
-      alert("Item validated and sent to admin");
-    } catch (err) {
-      console.log(err);
-      alert(err.message);
-    }
-  };
-  
-  // ================= RETURN =================
-  const returnItem = async (id) => {
-    try {
-      const item = items.find(i => i.id === id);
-      const feedback = feedbacks[id];
-  
-      if (!feedback) {
-        alert("Feedback required");
-        return;
+  const itemsPerPage = isProverbView ? 10 : 15; 
+
+  const categoriesList = ["All", "Wisdom", "Relationships & Community", "Honor & Respect", "General Life Lessons"];
+
+  // ================= MODAL STATE =================
+  const [confirmConfig, setConfirmConfig] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "info",
+    confirmText: "",
+    onConfirm: () => {},
+  });
+
+  const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
+
+  // 1. Logout Confirmation Handler
+  const handleLogoutClick = () => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Confirm Logout",
+      message: "Are you sure you want to log out of your session?",
+      type: "warning",
+      confirmText: "Log Out",
+      onConfirm: () => {
+        closeConfirm();
+        triggerLogout();
       }
-  
-      await updateDoc(doc(db, "culturalItems", id), {
-        status: "returned",
-        feedback,
-        reviewedBy: auth.currentUser.uid,
-        reviewedAt: serverTimestamp()
+    });
+  };
+
+  // ================= DATA STREAM CHANNELS =================
+  useEffect(() => {
+    const q = query(collection(db, "culturalItems"), where("status", "in", ["pending", "uploaded", "returned", "posted", "approved", "deleted", "validated"]));
+    const unsub = onSnapshot(q, (snapshot) => setCulturalItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => showToast(err.message, "error"));
+    return () => unsub();
+  }, [showToast]);
+
+  useEffect(() => {
+    const q = query(collection(db, "proverb"), where("status", "in", ["pending_moderation", "pending", "uploaded", "submitted", "posted", "published", "validated", "approved", "returned", "deleted"]));
+    const unsub = onSnapshot(q, (snapshot) => setProverbItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => showToast(err.message, "error"));
+    return () => unsub();
+  }, [showToast]);
+
+  useEffect(() => {
+    const q = query(collection(db, "systemFeedbacks"));
+    const unsub = onSnapshot(q, (snapshot) => setSystemFeedbackList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => showToast(err.message, "error"));
+    return () => unsub();
+  }, [showToast]);
+
+  useEffect(() => {
+    let unsubSnap = null;
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      if (unsubSnap) { unsubSnap(); unsubSnap = null; }
+      if (!user) { setUnreadCount(0); return; }
+      const q = query(collection(db, "notifications"), or(where("userId", "==", user.uid), where("targetRole", "==", "moderator")));
+      unsubSnap = onSnapshot(q, (snapshot) => {
+        const unreadItems = snapshot.docs.filter(doc => {
+          const data = doc.data();
+          if (data.userId) return data.read !== true && data.read !== "true";
+          return !(Array.isArray(data.isReadBy) ? data.isReadBy : []).includes(user.uid);
+        });
+        setUnreadCount(unreadItems.length);
       });
-  
-      await sendNotification({
-        userId: item.createdBy,
-        message: `Your item "${item.title}" was returned by moderator. Feedback: ${feedback}`,
-        type: "returned",
-        itemId: id
-      });
-  
-      await notifyRole({
-        role: "admin",
-        message: `Moderator returned item: ${item.title}`,
-        type: "returned",
-        itemId: id
-      });
-  
-      alert("Item returned");
-    } catch (err) {
-      console.log(err);
-      alert(err.message);
+    });
+    return () => { unsubscribeAuth(); if (unsubSnap) unsubSnap(); };
+  }, []);
+
+  // ================= METRICS AGGREGATION =================
+  const metrics = useMemo(() => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+    const proverbsToday = proverbItems.filter(i => {
+      let updateTime = 0;
+      if (i.updatedAt?.toMillis) updateTime = i.updatedAt.toMillis();
+      else if (i.updatedAt?.seconds) updateTime = i.updatedAt.seconds * 1000;
+      else if (typeof i.updatedAt === 'number') updateTime = i.updatedAt;
+      else if (typeof i.updatedAt === 'string') updateTime = new Date(i.updatedAt).getTime();
+      return updateTime >= startOfToday && ["posted", "published"].includes(i.status);
+    }).length;
+
+    const validatedToday = [...culturalItems, ...proverbItems].filter(i => {
+      let updateTime = 0;
+      if (i.updatedAt?.toMillis) updateTime = i.updatedAt.toMillis();
+      else if (i.updatedAt?.seconds) updateTime = i.updatedAt.seconds * 1000;
+      else if (typeof i.updatedAt === 'number') updateTime = i.updatedAt;
+      else if (typeof i.updatedAt === 'string') updateTime = new Date(i.updatedAt).getTime();
+      
+      const stat = (i.status || "").toLowerCase();
+      return updateTime >= startOfToday && ["validated", "posted", "approved", "published"].includes(stat);
+    }).length;
+
+    const pendingItems = [
+      ...culturalItems.filter(i => ["pending", "uploaded"].includes(i.status)),
+      ...proverbItems.filter(i => ["pending_moderation", "pending", "submitted"].includes(i.status))
+    ];
+
+    let oldestItemName = "None";
+    let daysPassedStr = "All Clear";
+    let pendingCount = pendingItems.length;
+
+    if (pendingCount > 0) {
+      const oldest = pendingItems.sort((a, b) => {
+        let timeA = 0; let timeB = 0;
+        if (a.createdAt?.toMillis) timeA = a.createdAt.toMillis();
+        else if (typeof a.createdAt === 'string') timeA = new Date(a.createdAt).getTime();
+        
+        if (b.createdAt?.toMillis) timeB = b.createdAt.toMillis();
+        else if (typeof b.createdAt === 'string') timeB = new Date(b.createdAt).getTime();
+
+        return timeA - timeB;
+      })[0];
+
+      oldestItemName = oldest.title || oldest.proverb || "Untitled Item";
+      
+      let oldestDate = null;
+      if (oldest.createdAt?.toDate) oldestDate = oldest.createdAt.toDate();
+      else if (typeof oldest.createdAt === 'string') oldestDate = new Date(oldest.createdAt);
+      else if (typeof oldest.createdAt === 'number') oldestDate = new Date(oldest.createdAt);
+
+      if (oldestDate) {
+        const diffInMs = now.getTime() - oldestDate.getTime();
+        const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+        daysPassedStr = diffInDays === 0 ? "Submitted Today" : `${diffInDays} Day${diffInDays > 1 ? 's' : ''}`;
+      }
     }
+
+    return { 
+      proverbsToday, 
+      validatedToday, 
+      oldestItemName, 
+      daysPassedStr, 
+      pendingCount,
+      culturalPendingCount: culturalItems.filter(i => ["pending", "uploaded"].includes(i.status)).length,
+      proverbPendingCount: proverbItems.filter(i => ["pending_moderation", "pending"].includes(i.status)).length,
+      cultPosted: culturalItems.filter(i => ["posted", "approved"].includes(i.status)),
+      provPosted: proverbItems.filter(i => ["posted", "published", "validated", "approved"].includes(i.status))
+    };
+  }, [culturalItems, proverbItems]);
+
+  const uniqueCategories = useMemo(() => ["all", ...new Set(culturalItems.map(item => item.category).filter(Boolean))], [culturalItems]);
+
+  // ================= FILTER ENGINE =================
+  const filteredActiveItems = useMemo(() => {
+    const normalizedQuery = searchQuery.toLowerCase().trim();
+    let baseList = [];
+
+    if (tab === "cultural_validation") baseList = culturalItems.filter(i => ["pending", "uploaded"].includes((i.status || "").toLowerCase()));
+    else if (tab === "proverb_validation") baseList = proverbItems.filter(i => ["pending_moderation", "pending", "uploaded", "submitted"].includes((i.status || "").toLowerCase()));
+    else if (tab === "published_proverbs") baseList = metrics.provPosted;
+    else if (tab === "archive") baseList = metrics.cultPosted;
+    else if (tab === "feedbacks") return systemFeedbackList;
+
+    return baseList.filter(item => {
+      if (tab === "published_proverbs") {
+        const itemCategory = item.category || "General Life Lessons";
+        return (selectedCategory === "all" || selectedCategory === "All" || itemCategory === selectedCategory) &&
+          (!normalizedQuery || (item.proverb || "").toLowerCase().includes(normalizedQuery) || (item.meaning || "").toLowerCase().includes(normalizedQuery));
+      }
+      return (!normalizedQuery || (item.title || "").toLowerCase().includes(normalizedQuery) || (item.proverb || "").toLowerCase().includes(normalizedQuery)) &&
+        (tab === "proverb_validation" || selectedCategory === "all" || item.category === selectedCategory);
+    });
+  }, [tab, culturalItems, proverbItems, metrics, searchQuery, selectedCategory, systemFeedbackList]);
+
+  useEffect(() => { setCurrentPage(1); }, [tab, searchQuery, selectedCategory]);
+
+  const totalPages = Math.ceil(filteredActiveItems.length / itemsPerPage) || 1;
+  const paginatedItems = useMemo(() => filteredActiveItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage), [filteredActiveItems, currentPage, itemsPerPage]);
+
+  // 🔄 Updated Feedback Toggle Handler with Confirmation
+  const handleToggleFeedbackStatus = (feedbackId, currentStatus) => {
+    const newStatus = currentStatus === "resolved" ? "pending" : "resolved";
+    const actionText = newStatus === "resolved" ? "Resolve" : "Unresolve";
+    
+    setConfirmConfig({
+      isOpen: true,
+      title: `${actionText} Feedback`,
+      message: newStatus === "resolved" 
+        ? "Are you sure you want to mark this feedback as resolved?"
+        : "Are you sure you want to move this feedback back to pending?",
+      type: newStatus === "resolved" ? "success" : "warning",
+      confirmText: `Yes, ${actionText}`,
+      onConfirm: async () => {
+        closeConfirm();
+        try {
+          await updateDoc(doc(db, "systemFeedbacks", feedbackId), { status: newStatus });
+          showToast(`Feedback status marked as ${newStatus}.`, "success");
+        } catch (err) { 
+          showToast(err.message, "error"); 
+        }
+      }
+    });
   };
 
-  // ================= LOGOUT =================
-  const handleLogout = async () => {
-    await signOut(auth);
-    changePage("landing");
-  };
-
-  // ================= COMPONENTS =================
-  const StatCard = ({ title, value, icon }) => (
-    <div className="bg-white p-6 rounded-2xl shadow-lg">
-      <div className="flex justify-between items-center mb-2">
-        <p className="text-gray-500 text-sm">{title}</p>
-        <div className="text-[#800000]">{icon}</div>
-      </div>
-      <h2 className="text-3xl font-bold text-[#800000]">{value}</h2>
-    </div>
-  );
-
-  const TabButton = ({ name, value }) => (
-    <button
-      onClick={() => setTab(value)}
-      className={`px-5 py-2 rounded-xl capitalize font-semibold transition ${
-        tab === value ? "bg-[#800000] text-white" : "bg-white border text-[#800000]"
-      }`}
-    >
-      {name}
-    </button>
-  );
+  const moderatorLinks = [
+    { value: "cultural_validation", label: "Pending Cultural Items", icon: <ShieldCheck size={16} />, badge: metrics.culturalPendingCount > 0 ? metrics.culturalPendingCount : undefined },
+    { value: "proverb_validation", label: "Pending Proverbs", icon: <Clock size={16} />, badge: metrics.proverbPendingCount > 0 ? metrics.proverbPendingCount : undefined },
+    { value: "published_proverbs", label: "Posted Proverbs", icon: <Quote size={16} />, badge: metrics.provPosted.length > 0 ? metrics.provPosted.length : undefined },
+    { value: "archive", label: "Cultural Archive", icon: <Archive size={16} />, badge: metrics.cultPosted.length },
+    { value: "feedbacks", label: "System Feedbacks", icon: <MessageSquare size={16} />, badge: systemFeedbackList.length > 0 ? systemFeedbackList.length : undefined }
+  ];
 
   return (
-    <div className="min-h-screen bg-[#f5f5dc]">
-      {/* HEADER */}
-      <header className="bg-[#800000] text-white px-6 lg:px-10 py-5 shadow-xl">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-          <div className="flex items-center gap-3">
-            <BookOpen size={30} />
-            <div>
-              <h1 className="text-2xl font-bold">Moderator Dashboard</h1>
-              <p className="text-sm opacity-80">Data Validation & Moderation</p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4">
-            <button
-              onClick={() => changePage("notifications", { fromPage: "dashboard" })}
-              className="relative bg-white text-[#800000] px-4 py-2 rounded-xl flex items-center gap-2 hover:scale-105 transition"
-            >
-              <Bell size={18} /> Notifications
-              {unreadNotifications > 0 && (
-                <span className="absolute -top-2 -right-2 bg-red-600 text-white text-xs w-6 h-6 rounded-full flex items-center justify-center border-2 border-[#800000]">
-                  {unreadNotifications}
-                </span>
-              )}
-            </button>
-
-            <div className="bg-white/10 px-4 py-2 rounded-xl flex items-center gap-2">
-              <User size={16} />
-              <span className="text-sm truncate max-w-[150px]">{user?.email}</span>
-            </div>
-
-            <button
-              onClick={handleLogout}
-              className="bg-[#D4A017] px-4 py-2 rounded-xl flex items-center gap-2 hover:opacity-90 transition"
-            >
-              <LogOut size={16} />
-              Logout
-            </button>
+    <MasterDashboardShell 
+      userRole="moderator" 
+      userName={auth.currentUser?.displayName || (auth.currentUser?.email || "").split("@")[0]} 
+      activeTab={tab} 
+      setActiveTab={setTab} 
+      sidebarLinks={moderatorLinks} 
+      notificationCount={unreadCount} 
+      onNotificationClick={() => changePage("notifications", { fromPage: "dashboard" })} 
+      onLogout={handleLogoutClick} // 🔄 Updated to use modal
+    >
+      
+      {/* 📊 MAROON STAT CARDS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-8">
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
+          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Proverbs Today</p>
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{metrics.proverbsToday}</h2>
+            <span className="text-[10px] text-gray-400 font-bold uppercase">Posted Today</span>
           </div>
         </div>
-      </header>
 
-      {/* MAIN */}
-      <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-
-        {/* STATS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <StatCard title="Pending Validation" value={pendingItems.length} icon={<Clock />} />
-          <StatCard title="Total Posted" value={postedItems.length} icon={<Archive />} />
-          <StatCard title="Total Returned" value={returnedItems.length} icon={<XCircle />} />
-        </div>
-
-        {/* TABS */}
-        <div className="flex flex-wrap gap-3 mb-6">
-          <TabButton name="pending" value="pending" />
-          <TabButton name="posted" value="posted" />
-        </div>
-
-        {/* ================= SEARCH & FILTER BAR ================= */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-8">
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-            <input
-              type="text"
-              placeholder={`Search in ${tab} items...`}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-[#800000] focus:ring-1 focus:ring-[#800000] shadow-sm bg-white"
-            />
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
+          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Validated Today</p>
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{metrics.validatedToday}</h2>
+            <span className="text-[10px] text-gray-400 font-bold uppercase">Items reviewed</span>
           </div>
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-[#800000] focus:ring-1 focus:ring-[#800000] shadow-sm bg-white sm:min-w-[200px]"
-          >
-            {categories.map((cat, index) => (
-              <option key={index} value={cat}>{cat}</option>
-            ))}
-          </select>
         </div>
 
-        {/* ================= PENDING TAB ================= */}
-        {tab === "pending" && (
-          <>
-            {filteredPendingItems.length === 0 ? (
-              <div className="bg-white p-10 rounded-2xl shadow-lg text-center text-gray-500">
-                {searchTerm || selectedCategory !== "All" ? "No pending items match your search criteria." : "No items currently pending validation."}
-              </div>
-            ) : (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {filteredPendingItems.map(item => (
-                  <div key={item.id} className="bg-white rounded-2xl shadow-md overflow-hidden flex flex-col hover:shadow-xl hover:scale-[1.02] transition-all duration-300 h-full">
-                    
-                    {/* Fixed Image Height */}
-                    <div className="h-48 overflow-hidden relative group shrink-0">
-                      {item.imageUrl ? (
-                        <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">No Image</div>
-                      )}
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition" />
-                      <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition bg-white px-3 py-1 rounded-full text-xs flex items-center gap-1">
-                        <Eye size={14} /> Preview
-                      </div>
-                    </div>
-                    
-                    {/* Card Content */}
-                    <div className="p-5 flex flex-col flex-1">
-                      <h3 className="text-lg font-bold text-[#800000] line-clamp-1">{item.title}</h3>
-                      <p className="text-sm text-gray-500 mb-2">{item.category}</p>
-                      
-                      {/* Truncated Description */}
-                      <p className="text-sm text-gray-700 line-clamp-2 mb-4">{item.description}</p>
-                      
-                      {/* Steady Bottom Section via mt-auto */}
-                      <div className="mt-auto flex flex-col gap-3">
-                        <textarea
-                          placeholder="Feedback if returning..."
-                          value={feedbacks[item.id] || ""}
-                          onChange={(e) => setFeedbacks({ ...feedbacks, [item.id]: e.target.value })}
-                          className="border rounded-xl p-2 text-sm w-full focus:outline-none focus:border-[#800000]"
-                          rows="2"
-                        />
-                        <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => approveItem(item.id)} className="bg-green-600 text-white py-2 rounded-xl text-sm hover:bg-green-700 transition flex justify-center items-center gap-1">
-                            <CheckCircle size={14} /> Approve
-                          </button>
-                          <button onClick={() => returnItem(item.id)} className="bg-red-600 text-white py-2 rounded-xl text-sm hover:bg-red-700 transition flex justify-center items-center gap-1">
-                            <XCircle size={14} /> Return
-                          </button>
-                        </div>
-                        <button onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "moderator" })} className="w-full border-2 border-[#800000] text-[#800000] py-2 rounded-xl text-sm hover:bg-[#800000] hover:text-white transition">
-                          View Details
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* ================= POSTED TAB ================= */}
-        {tab === "posted" && (
-          <>
-            {filteredPostedItems.length === 0 ? (
-              <div className="bg-white p-10 rounded-2xl shadow-lg text-center text-gray-500">
-                {searchTerm || selectedCategory !== "All" ? "No posted items match your search criteria." : "No posted items found."}
-              </div>
-            ) : (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {filteredPostedItems.map(item => (
-                  <div key={item.id} className="bg-white rounded-2xl shadow-md overflow-hidden flex flex-col hover:shadow-xl hover:scale-[1.02] transition-all duration-300 h-full">
-                    
-                    {/* Fixed Image Height */}
-                    <div className="h-48 overflow-hidden relative group shrink-0">
-                      {item.imageUrl ? (
-                        <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">No Image</div>
-                      )}
-                    </div>
-                    
-                    {/* Card Content */}
-                    <div className="p-5 flex flex-col flex-1">
-                      <h3 className="font-bold text-[#800000] text-lg line-clamp-1 mb-1">{item.title}</h3>
-                      <p className="text-sm text-gray-500 mb-2">{item.category}</p>
-                      <p className="text-sm text-gray-700 line-clamp-2 mb-4">{item.description}</p>
-                      
-                      {/* Steady Bottom Section via mt-auto */}
-                      <div className="mt-auto">
-                        <button onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "moderator" })} className="w-full bg-[#800000] text-white py-2 rounded-xl text-sm hover:opacity-90 transition">
-                          View Details
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300 flex flex-col justify-center overflow-hidden">
+          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider mb-1">Need to Validate</p>
+          <h2 className={`font-black text-[#4A0C16] font-serif truncate mt-1 ${metrics.pendingCount > 0 ? 'text-lg' : 'text-3xl'}`} title={metrics.oldestItemName}>
+            {metrics.oldestItemName}
+          </h2>
+          <div className="flex items-center gap-1.5 mt-1">
+            <Clock size={10} className={metrics.pendingCount > 0 ? "text-red-500" : "text-gray-400"} />
+            <span className={`text-[10px] font-bold uppercase ${metrics.pendingCount > 0 ? "text-red-600" : "text-gray-400"}`}>
+              {metrics.daysPassedStr}
+            </span>
+          </div>
+        </div>
       </div>
-    </div>
+
+      <hr className="my-8 border-t border-[#E09F26]/20 w-full" />
+
+      {/* 🔍 CONTROL CONTROLLERS */}
+      {tab !== "feedbacks" && (
+        <div className="flex flex-col sm:flex-row gap-4 mb-8 items-stretch sm:items-center justify-between">
+          <div className="relative flex-1 max-w-xl">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input type="text" placeholder={isProverbView ? "Search traditional wisdom..." : "Search entries..."} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-[#E09F26]/20 focus:outline-none focus:border-[#E09F26] text-sm font-medium text-[#4A0C16] bg-white shadow-sm transition-all" />
+          </div>
+          {tab !== "proverb_validation" && (
+            <div className="relative min-w-[240px]">
+              <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-[#E09F26]" size={16} />
+              <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="w-full pl-11 pr-10 py-3.5 rounded-2xl border border-[#E09F26]/20 bg-white cursor-pointer text-sm font-bold text-[#4A0C16] appearance-none shadow-sm transition-all">
+                {isProverbView ? categoriesList.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Proverb Kinds" : cat}</option>) : uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === "all" ? "All Categories" : cat}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 📊 GRID DISPLAY */}
+      <div className="min-h-[400px]">
+        {paginatedItems.length === 0 ? (
+          <div className="bg-white/60 p-16 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center justify-center">
+            <Inbox className="w-12 h-12 text-gray-300 mb-3" />
+            <p className="text-gray-500 text-sm font-medium">No records found within this category.</p>
+          </div>
+        ) : (
+          <div className={`grid gap-5 animate-fadeIn ${
+            isProverbView ? "grid-cols-1 lg:grid-cols-2" : 
+            tab === "feedbacks" ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4" : 
+            "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:!grid-cols-5"
+          }`}>
+            
+            {/* CULTURAL CARDS */}
+            {(tab === "cultural_validation" || tab === "archive") && paginatedItems.map(item => (
+              <div key={item.id} onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "moderator", isPending: tab === "cultural_validation" })} className="bg-white rounded-3xl overflow-hidden border border-[#E09F26]/20 flex flex-col hover:border-[#E09F26]/50 hover:shadow-lg cursor-pointer transition-all group">
+                <div className="h-36 relative bg-gray-50 border-b">
+                  {item.imageUrl && !brokenImages[item.id] ? (
+                    <img src={item.imageUrl} onError={() => setBrokenImages(prev => ({ ...prev, [item.id]: true }))} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" alt=""/> 
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-200"><BookOpen size={24}/></div>
+                  )}
+                  {tab === "cultural_validation" && <div className="absolute top-2 left-2 bg-amber-500 text-white text-[8px] px-2 py-0.5 rounded font-black uppercase">Pending Review</div>}
+                </div>
+                <div className="p-4 flex flex-col flex-1">
+                  <span className="text-[8px] font-black uppercase text-[#E09F26] mb-1">{item.category}</span>
+                  <h3 className="font-bold text-[#4A0C16] text-sm line-clamp-2 font-serif mb-3 leading-tight">{item.title}</h3>
+                  <div className="mt-auto pt-3 border-t border-gray-50 text-right">
+                     <span className="text-[10px] font-bold text-[#E09F26] uppercase group-hover:text-[#4A0C16]">{tab === "archive" ? "View →" : "Details →"}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* PROVERB CARDS */}
+            {(isProverbView) && paginatedItems.map(item => (
+              <div key={item.id} onClick={() => changePage("proverbdetail", { itemId: item.id, fromPage: "dashboard", role: "moderator", isPending: tab === "proverb_validation" })} className="bg-white rounded-2xl flex flex-col border border-[#E09F26]/20 hover:border-[#E09F26]/80 hover:shadow-lg transition-all h-[220px] p-6 cursor-pointer group relative overflow-hidden">
+                <div className="flex justify-between items-start mb-3">
+                  <span className="text-[10px] bg-[#FEF9C3] text-[#A16207] px-2.5 py-1 rounded border border-[#FEF08A] font-black uppercase tracking-widest">{item.category}</span>
+                  {tab === "proverb_validation" && <span className="text-[8px] bg-amber-500 text-white px-2 py-0.5 rounded font-black">PENDING</span>}
+                </div>
+                <div className="flex gap-4 items-start flex-1 overflow-hidden">
+                  <Quote size={28} className="text-[#E09F26] opacity-40 group-hover:opacity-100 transition-opacity" />
+                  <div className="flex flex-col gap-2 w-full">
+                    <h3 className="text-xl font-black text-[#4A0C16] italic font-serif line-clamp-2 leading-snug">"{item.proverb}"</h3>
+                    <p className="text-sm text-gray-500 line-clamp-2 font-medium">{item.meaning}</p>
+                  </div>
+                </div>
+                <div className="mt-auto pt-3 border-t border-gray-50 text-right">
+                   <span className="text-[10px] font-bold text-[#E09F26] uppercase">Review &rarr;</span>
+                </div>
+              </div>
+            ))}
+
+            {/* FEEDBACKS */}
+            {tab === "feedbacks" && paginatedItems.map(fb => (
+              <div key={fb.id} className="bg-white rounded-2xl flex flex-col shadow-xs border border-[#E09F26]/20 p-4 h-48">
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-[10px] font-bold text-[#4A0C16] truncate pr-2">{fb.userEmail}</h4>
+                  <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${fb.status === 'resolved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{fb.status}</span>
+                </div>
+                <div className="flex-1 bg-gray-50 p-3 rounded-lg border border-gray-100 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+                  <p className="text-gray-600 text-[11px] italic pr-1">"{fb.message}"</p>
+                </div>
+                <button 
+                  onClick={() => handleToggleFeedbackStatus(fb.id, fb.status)} 
+                  className={`w-full mt-3 py-2 rounded-xl text-[10px] font-bold transition-colors ${
+                    fb.status === "resolved" 
+                    ? "bg-emerald-600 text-white hover:bg-emerald-700" 
+                    : "bg-[#4A0C16] text-white hover:bg-[#31080E]"
+                  }`}
+                >
+                  {fb.status === "resolved" ? 'Resolved ✓' : 'Resolve'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 🔢 SLIDING RANGE PAGINATION */}
+      {totalPages > 1 && (
+        <div className="mt-10 pt-6 border-t border-[#E09F26]/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-xs text-gray-400 font-medium">
+            Showing <span className="font-bold text-[#4A0C16]">{Math.min(currentPage * itemsPerPage, filteredActiveItems.length)}</span> of <span className="font-bold text-[#4A0C16]">{filteredActiveItems.length}</span>
+          </p>
+          
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-center">
+            <button 
+              disabled={currentPage <= 1} 
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} 
+              className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-sm"
+            >
+              <ChevronLeft size={18} />
+            </button>
+
+            <div className="flex flex-col items-center flex-1 max-w-[250px] w-full px-4">
+              <span className="text-xs font-bold text-[#4A0C16] font-mono mb-2 uppercase tracking-widest">
+                Page {currentPage} of {totalPages}
+              </span>
+              <input 
+                type="range" 
+                min="1" 
+                max={totalPages} 
+                value={currentPage} 
+                onChange={(e) => setCurrentPage(Number(e.target.value))}
+                className="w-full h-1.5 bg-[#E09F26]/30 rounded-lg appearance-none cursor-pointer accent-[#4A0C16]"
+                title="Slide to change pages"
+              />
+            </div>
+
+            <button 
+              disabled={currentPage >= totalPages} 
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} 
+              className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-sm"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 🔐 UNIVERSAL CONFIRMATION MODAL */}
+      <ConfirmationModal 
+        isOpen={confirmConfig.isOpen} 
+        config={confirmConfig} 
+        onClose={closeConfirm} 
+      />
+
+    </MasterDashboardShell>
   );
 };
 

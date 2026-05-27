@@ -1,333 +1,406 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { auth, db } from "../../firebase/firebase";
-import { signOut } from "firebase/auth";
+import { collection, query, onSnapshot, where, doc } from "firebase/firestore"; // 🆕 Added 'doc'
 import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  doc,
-  setDoc,
-  serverTimestamp
-} from "firebase/firestore";
-import {
-  BookOpen, Upload, LogOut, User, Bell, Sparkles, Eye, RotateCcw, Search, Clock, Archive
+  BookOpen, Upload, Archive, RotateCcw, Sparkles, Search, LayoutDashboard, ChevronLeft, ChevronRight, Quote, Clock, Edit3
 } from "lucide-react";
-import { notifyRole } from "../../services/notificationService";
 
-const EncoderDashboard = ({ user, changePage }) => {
+import MasterDashboardShell from "../../components/MasterDashboardShell";
+import WordOfTheDayConsole from "../../pages/dashboard/WordOfTheDayConsole";
+import ConfirmationModal from "../../components/ConfirmationModal";
+
+const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   const [items, setItems] = useState([]);
+  const [proverbItems, setProverbItems] = useState([]); 
   const [tab, setTab] = useState("posted");
-  const [showWord, setShowWord] = useState(false);
-  
-  // Search & Filter State
+  const [showWord, setShowWord] = useState(false); 
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("All");
-  const categories = ["All", "Artifact", "Historical Record", "Publication"];
-
-  const [wordData, setWordData] = useState({ term: "", translation: "", meaning: "" });
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [revisionType, setRevisionType] = useState("cultural"); 
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
-  // ================= LOAD ITEMS (STRICT REAL-TIME) =================
-  useEffect(() => {
-    if (!auth.currentUser) return;
+  // 🆕 State to hold the currently published word of the day
+  const [todayWordData, setTodayWordData] = useState(null);
 
-    const q = query(
-      collection(db, "culturalItems"),
-      where("encoderId", "==", auth.currentUser.uid)
-    );
+  const categories = ["all", "Artifact", "Historical Record", "Publication"];
+  const [currentPage, setCurrentPage] = useState(1);
+  
+  const isProverbView = tab === "posted_proverbs" || (tab === "returned" && revisionType === "proverb");
+  const itemsPerPage = isProverbView ? 10 : 25; 
 
-    const unsub = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setItems(list);
-    }, (err) => console.error("Firestore Error:", err));
+  // ================= MODAL STATE =================
+  const [confirmConfig, setConfirmConfig] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "info",
+    confirmText: "",
+    onConfirm: () => {},
+  });
 
-    return () => unsub();
-  }, []);
+  const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
 
-  // ================= LOAD NOTIFICATIONS =================
-  useEffect(() => {
-    if (!auth.currentUser) return;
-    const q = query(collection(db, "notifications"), where("userId", "==", auth.currentUser.uid), where("read", "==", false));
-    const unsub = onSnapshot(q, (snap) => setUnreadNotifications(snap.size));
-    return () => unsub();
-  }, []);
-
-  // ================= HANDLERS =================
-  const handleLogout = async () => { await signOut(auth); changePage("landing"); };
-
-  const formatDate = (ts) => {
-    if (!ts) return "Just now";
-    const date = ts.toDate ? ts.toDate() : new Date(ts);
-    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  };
-
-  const saveWord = async (e) => {
-    e.preventDefault();
-    try {
-      await setDoc(doc(db, "wordOfDay", "today"), {
-        ...wordData,
-        updatedAt: serverTimestamp()
-      });
-      await notifyRole({
-        role: "user",
-        message: `New Word of the Day published: ${wordData.term}`,
-        type: "new_word"
-      });
-      alert("Word published!");
-      setShowWord(false);
-      setWordData({ term: "", translation: "", meaning: "" });
-    } catch (err) {
-      console.error(err);
-      alert(err.message);
-    }
-  };
-
-  // ================= FILTERING LOGIC =================
-  const getFilteredItems = (statusList) => {
-    return statusList.filter(item => {
-      const titleMatch = (item.title || "").toLowerCase().includes(searchQuery.toLowerCase());
-      const catMatch = selectedCategory === "All" || item.category === selectedCategory;
-      return titleMatch && catMatch;
+  // 1. Logout Confirmation Handler
+  const handleLogoutClick = () => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Confirm Logout",
+      message: "Are you sure you want to log out of your session?",
+      type: "warning",
+      confirmText: "Log Out",
+      onConfirm: () => {
+        closeConfirm();
+        triggerLogout();
+      }
     });
   };
 
-  const postedItems = getFilteredItems(items.filter(i => i.status === "posted"));
-  const submissionItems = getFilteredItems(items.filter(i => ["pending", "validated", "returned"].includes(i.status)));
-  const returnedItems = items.filter(i => i.status === "returned");
+  // 2. Word of the Day Publish Confirmation Handler 
+  // 🔄 Updated to handle 'isEdit' dynamically
+  const requestWotdConfirm = (onConfirmCallback, isEdit = false) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: isEdit ? "Update Word of the Day" : "Publish Word of the Day",
+      message: isEdit 
+        ? "Are you sure you want to update today's Word? Changes will reflect immediately."
+        : "Are you sure you want to publish this Word of the Day? It will be visible on the main dashboard immediately.",
+      type: isEdit ? "warning" : "info",
+      confirmText: isEdit ? "Update" : "Publish",
+      onConfirm: () => {
+        closeConfirm();
+        if (onConfirmCallback) onConfirmCallback();
+      }
+    });
+  };
+
+  // ================= NOTIFICATION LISTENER =================
+  useEffect(() => {
+    const uid = user?.uid || auth.currentUser?.uid;
+    if (!uid) return;
+    const q = query(collection(db, "notifications"));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const unread = snapshot.docs.filter(doc => {
+        const data = doc.data();
+        const isMine = data.userId === uid;
+        const matchesMyRole = (data.targetRoles || []).includes("encoder") || (data.targetRole || "").toLowerCase() === "encoder";
+        const belongsToMe = isMine || matchesMyRole;
+        const isUnread = data.userId ? (data.read !== true && data.read !== "true") : !(data.isReadBy || []).includes(uid);
+        return belongsToMe && isUnread;
+      });
+      setUnreadNotifications(unread.length);
+    });
+    return () => unsub();
+  }, [user]);
+  
+  // ================= DATA LOADERS =================
+  
+  // 🆕 Fetch the Word of the Day
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "wordOfDay", "today"), (docSnap) => {
+      if (docSnap.exists()) {
+        setTodayWordData(docSnap.data());
+      } else {
+        setTodayWordData(null);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const uid = user?.uid || auth.currentUser?.uid;
+    if (!uid) return;
+    const q = query(collection(db, "culturalItems"), where("createdBy", "==", uid));
+    const unsub = onSnapshot(q, (snapshot) => {
+      setItems(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, [user]);
+
+  useEffect(() => {
+    const uid = user?.uid || auth.currentUser?.uid;
+    if (!uid) return;
+    const q = query(collection(db, "proverb"));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setProverbItems(list.filter(item => item.encoderId === uid || item.createdBy === uid || item.userId === uid));
+    });
+    return () => unsub();
+  }, [user]);
+
+  // ================= STATS LOGIC =================
+  const statsMetrics = useMemo(() => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const uploadedToday = [...items, ...proverbItems].filter(i => {
+      const createdAt = i.createdAt?.toDate ? i.createdAt.toDate() : null;
+      return createdAt && createdAt >= startOfToday;
+    }).length;
+
+    const returnedItems = [...items, ...proverbItems].filter(i => i.status === "returned");
+    let revisionItemName = "None";
+    let daysPassedStr = "All Clear";
+    
+    if (returnedItems.length > 0) {
+      const oldestReturned = returnedItems.sort((a, b) => {
+        const timeA = a.updatedAt?.toMillis() || a.createdAt?.toMillis() || 0;
+        const timeB = b.updatedAt?.toMillis() || b.createdAt?.toMillis() || 0;
+        return timeA - timeB;
+      })[0];
+      
+      revisionItemName = oldestReturned.title || oldestReturned.proverb || "Untitled Item";
+      
+      const oldestDate = oldestReturned.updatedAt?.toDate() || oldestReturned.createdAt?.toDate();
+      if (oldestDate) {
+        const diffInMs = now - oldestDate;
+        const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+        daysPassedStr = diffInDays === 0 ? "Returned Today" : `${diffInDays} Day${diffInDays > 1 ? 's' : ''} Ago`;
+      }
+    }
+
+    const totalPosted = [...items, ...proverbItems].filter(i => 
+      ["posted", "published"].includes((i.status || "").toLowerCase())
+    ).length;
+
+    return { uploadedToday, revisionItemName, daysPassedStr, totalPosted, returnedCount: returnedItems.length };
+  }, [items, proverbItems]);
+
+  // ================= FILTERS & PAGINATION =================
+  const filteredCulturalItems = useMemo(() => {
+    return items.filter(item => {
+      const titleMatch = (item.title || "").toLowerCase().includes(searchQuery.toLowerCase());
+      const catMatch = selectedCategory === "all" || item.category === selectedCategory;
+      return titleMatch && catMatch;
+    });
+  }, [items, searchQuery, selectedCategory]);
+
+  const filteredProverbItems = useMemo(() => {
+    return proverbItems.filter(item => 
+      (item.proverb || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
+      (item.meaning || "").toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [proverbItems, searchQuery]);
+
+  const postedItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "posted" || i.status === "validated"), [filteredCulturalItems]);
+  const submissionItems = useMemo(() => filteredCulturalItems.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status)), [filteredCulturalItems]);
+  const returnedCulturalItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "returned"), [filteredCulturalItems]);
+  const returnedProverbItems = useMemo(() => filteredProverbItems.filter(i => i.status === "returned"), [filteredProverbItems]);
+  const totalReturnedCount = returnedCulturalItems.length + returnedProverbItems.length;
+  const postedProverbs = useMemo(() => filteredProverbItems.filter(i => ["posted", "validated", "approved", "published"].includes((i.status || "").toLowerCase())), [filteredProverbItems]);
+
+  const currentTabItems = useMemo(() => {
+    if (tab === "posted") return postedItems;
+    if (tab === "submissions") return submissionItems;
+    if (tab === "posted_proverbs") return postedProverbs;
+    if (tab === "returned") return revisionType === "cultural" ? returnedCulturalItems : returnedProverbItems;
+    return [];
+  }, [tab, revisionType, postedItems, submissionItems, postedProverbs, returnedCulturalItems, returnedProverbItems]);
+
+  const paginatedItems = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return currentTabItems.slice(start, start + itemsPerPage);
+  }, [currentTabItems, currentPage, itemsPerPage]);
+
+  const encoderLinks = [
+    { value: "posted", label: "Cultural Archive", icon: <Archive size={16} />, badge: postedItems.length },
+    { value: "submissions", label: "My Submissions", icon: <LayoutDashboard size={16} />, badge: submissionItems.length },
+    { value: "posted_proverbs", label: "Posted Proverbs", icon: <Quote size={16} />, badge: postedProverbs.length },
+    { value: "returned", label: "Needs Revision", icon: <RotateCcw size={16} />, badge: totalReturnedCount > 0 ? totalReturnedCount : undefined }
+  ];
+
+  // ================= PAGINATION SLIDER =================
+  const renderPaginationSlider = (totalItems, perPage) => {
+    const totalPages = Math.ceil(totalItems / perPage) || 1;
+    if (totalItems <= perPage) return null;
+
+    return (
+      <div className="mt-12 pt-6 border-t border-[#E09F26]/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <button disabled={currentPage === 1} onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-sm">
+          <ChevronLeft size={18} />
+        </button>
+        <div className="flex flex-col items-center flex-1 max-w-[250px] w-full px-4">
+          <span className="text-xs font-bold text-[#4A0C16] font-mono mb-2 uppercase tracking-widest">Page {currentPage} of {totalPages}</span>
+          <input type="range" min="1" max={totalPages} value={currentPage} onChange={(e) => setCurrentPage(Number(e.target.value))} className="w-full h-1.5 bg-[#E09F26]/30 rounded-lg appearance-none cursor-pointer accent-[#4A0C16]" />
+        </div>
+        <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-sm">
+          <ChevronRight size={18} />
+        </button>
+      </div>
+    );
+  };
 
   return (
-    <div className="min-h-screen bg-[#f5f5dc]">
-      {/* HEADER */}
-      <header className="bg-[#800000] text-white px-6 lg:px-10 py-5 shadow-xl">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 max-w-7xl mx-auto">
-          <div className="flex items-center gap-3">
-            <BookOpen size={30} />
-            <div>
-              <h1 className="text-2xl font-bold">Encoder Dashboard</h1>
-              <p className="text-sm opacity-80">Heritage Management</p>
-            </div>
+    <MasterDashboardShell
+      userRole="encoder"
+      userName={auth.currentUser?.displayName || auth.currentUser?.email?.split("@")[0]}
+      activeTab={tab}
+      setActiveTab={setTab}
+      sidebarLinks={encoderLinks}
+      notificationCount={unreadNotifications}
+      onNotificationClick={() => changePage("notifications", { fromPage: "dashboard" })}
+      onLogout={handleLogoutClick}
+    >
+      {/* 📊 METRIC OVERVIEW */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-8">
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
+          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Uploaded Today</p>
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{statsMetrics.uploadedToday}</h2>
+            <span className="text-[10px] text-gray-400 font-bold uppercase">Items created today</span>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <button onClick={() => changePage("notifications", { fromPage: "dashboard" })} className="relative bg-white text-[#800000] px-4 py-2 rounded-xl flex items-center gap-2 hover:scale-105 transition">
-              <Bell size={18} /> Notifications
-              {unreadNotifications > 0 && <span className="absolute -top-2 -right-2 bg-red-600 text-white text-xs w-6 h-6 rounded-full flex items-center justify-center border-2 border-[#800000]">{unreadNotifications}</span>}
+        </div>
+
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300 flex flex-col justify-center overflow-hidden">
+          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider mb-1">Need to Revise</p>
+          <h2 className={`font-black text-[#4A0C16] font-serif truncate mt-1 ${statsMetrics.returnedCount > 0 ? 'text-lg' : 'text-3xl'}`} title={statsMetrics.revisionItemName}>{statsMetrics.revisionItemName}</h2>
+          <div className="flex items-center gap-1.5 mt-1">
+            <Clock size={10} className={statsMetrics.returnedCount > 0 ? "text-red-500" : "text-gray-400"} />
+            <span className={`text-[10px] font-bold uppercase ${statsMetrics.returnedCount > 0 ? "text-red-600" : "text-gray-400"}`}>{statsMetrics.daysPassedStr}</span>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
+          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Total Posted</p>
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{statsMetrics.totalPosted}</h2>
+            <span className="text-[10px] text-gray-400 font-bold uppercase">Live on platform</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ⚡ ACTION BAR */}
+      <div className="flex flex-wrap gap-3 mb-8">
+        <button onClick={() => changePage("upload")} className="bg-[#4A0C16] text-white px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-[#31080E] transition shadow-sm border border-[#4A0C16]">
+          <Upload size={14} /> Upload Cultural Item
+        </button>
+        <button onClick={() => changePage("uploadProverb")} className="bg-emerald-700 text-white px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-emerald-800 transition shadow-sm border border-emerald-700">
+          <Quote size={14} /> Upload Proverb
+        </button>
+        
+        {/* 🔄 Button updates text based on whether a word exists today */}
+        <button onClick={() => setShowWord(!showWord)} className="bg-[#E09F26] text-[#4A0C16] px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-[#c98a1e] transition shadow-sm border border-[#E09F26]">
+          {showWord ? <><Sparkles size={14} /> Close Console</> : todayWordData ? <><Edit3 size={14} /> Edit Word of the Day</> : <><Sparkles size={14} /> Set Word of the Day</>}
+        </button>
+      </div>
+
+      {/* 🔄 Passes existingData to the console */}
+      {showWord && (
+        <WordOfTheDayConsole 
+          onClose={() => setShowWord(false)} 
+          requestConfirm={requestWotdConfirm} 
+          existingData={todayWordData}
+        />
+      )}
+
+      <hr className="my-8 border-t border-[#E09F26]/10" />
+
+      {/* 🔍 SEARCH & FILTERS */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="relative flex-1 group">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#E09F26]" size={16} />
+          <input type="text" placeholder="Search entries..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-11 pr-4 py-3 rounded-2xl border border-[#E09F26]/20 focus:border-[#E09F26] outline-none bg-white text-sm transition-all" />
+        </div>
+        {tab !== "posted_proverbs" && tab !== "returned" && (
+          <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="px-4 py-3 rounded-2xl border border-[#E09F26]/20 bg-white text-sm font-bold text-[#4A0C16] outline-none cursor-pointer">
+            {categories.map(cat => <option key={cat} value={cat}>{cat === "all" ? "All Categories" : cat}</option>)}
+          </select>
+        )}
+      </div>
+
+      {/* 🔄 REVISION TOGGLE */}
+      {tab === "returned" && (
+        <div className="flex gap-2 mb-6 p-1 bg-gray-100/50 rounded-2xl w-fit border border-gray-100">
+          {["cultural", "proverb"].map(type => (
+            <button key={type} onClick={() => {setRevisionType(type); setCurrentPage(1);}} className={`px-6 py-2 rounded-xl text-xs font-bold transition-all ${revisionType === type ? "bg-[#4A0C16] text-white shadow-md" : "text-gray-500 hover:text-[#4A0C16]"}`}>
+              {type === "cultural" ? "Cultural Items" : "Proverbs"}
             </button>
-            <div className="bg-white/10 px-4 py-2 rounded-xl flex items-center gap-2">
-              <User size={16} />
-              <span className="text-sm truncate max-w-[150px]">{user?.email}</span>
-            </div>
-            <button onClick={handleLogout} className="bg-[#D4A017] px-4 py-2 rounded-xl flex items-center gap-2 hover:opacity-90 transition">
-              <LogOut size={16} /> Logout
-            </button>
-          </div>
+          ))}
         </div>
-      </header>
+      )}
 
-      <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-        {/* STATS */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-          <div className="bg-white p-6 rounded-2xl shadow-lg">
-            <div className="flex justify-between items-center mb-2">
-              <p className="text-gray-500 text-sm">Total Uploads</p>
-              <div className="text-[#800000]"><BookOpen size={20}/></div>
-            </div>
-            <h2 className="text-3xl font-bold text-[#800000]">{items.length}</h2>
-          </div>
-          <div className="bg-white p-6 rounded-2xl shadow-lg">
-            <div className="flex justify-between items-center mb-2">
-              <p className="text-gray-500 text-sm">Pending</p>
-              <div className="text-[#800000]"><Clock size={20}/></div>
-            </div>
-            <h2 className="text-3xl font-bold text-[#800000]">{items.filter(i=>i.status==="pending").length}</h2>
-          </div>
-          <div className="bg-white p-6 rounded-2xl shadow-lg">
-            <div className="flex justify-between items-center mb-2">
-              <p className="text-gray-500 text-sm">Returned</p>
-              <div className="text-[#800000]"><RotateCcw size={20}/></div>
-            </div>
-            <h2 className="text-3xl font-bold text-[#800000]">{items.filter(i=>i.status==="returned").length}</h2>
-          </div>
-          <div className="bg-white p-6 rounded-2xl shadow-lg">
-            <div className="flex justify-between items-center mb-2">
-              <p className="text-gray-500 text-sm">Posted</p>
-              <div className="text-[#800000]"><Archive size={20}/></div>
-            </div>
-            <h2 className="text-3xl font-bold text-[#800000]">{items.filter(i=>i.status==="posted").length}</h2>
-          </div>
-        </div>
-
-        {/* ACTIONS */}
-        <div className="flex flex-wrap gap-4 mb-8">
-          <button onClick={() => changePage("upload")} className="bg-[#800000] text-white px-6 py-3 rounded-xl flex items-center gap-2 hover:opacity-90 transition shadow-md">
-            <Upload size={18} /> Upload Item
-          </button>
-          <button onClick={() => setShowWord(!showWord)} className="bg-[#D4A017] text-white px-6 py-3 rounded-xl flex items-center gap-2 hover:opacity-90 transition shadow-md">
-            <Sparkles size={18} /> Word of the Day
-          </button>
-        </div>
-
-        {/* ================= WORD OF DAY FORM + PREVIEW ================= */}
-        {showWord && (
-          <div className="bg-white p-6 md:p-8 rounded-2xl shadow-lg mb-8 border border-gray-100 animate-fadeIn">
-            <h2 className="text-2xl font-bold text-[#800000] mb-6">Publish Word of the Day</h2>
-            <form onSubmit={saveWord} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input placeholder="Word (e.g. Mabalos)" value={wordData.term} onChange={(e) => setWordData({ ...wordData, term: e.target.value })} className="w-full border p-3 rounded-xl focus:outline-none focus:border-[#800000]" required />
-                <input placeholder="Translation (e.g. Thank you)" value={wordData.translation} onChange={(e) => setWordData({ ...wordData, translation: e.target.value })} className="w-full border p-3 rounded-xl focus:outline-none focus:border-[#800000]" required />
-              </div>
-              <textarea placeholder="Meaning" value={wordData.meaning} onChange={(e) => setWordData({ ...wordData, meaning: e.target.value })} className="w-full border p-3 rounded-xl focus:outline-none focus:border-[#800000]" rows={2} required />
-              
-              {/* LIVE PREVIEW BOX */}
-              <div className="mt-6">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Live User Dashboard Preview:</p>
-                <div className="w-full bg-gradient-to-r from-[#800000] to-[#D4A017] text-white p-6 rounded-2xl shadow-lg">
-                    <p className="text-xs uppercase tracking-wide text-yellow-200">Word of the Day</p>
-                    <h2 className="text-3xl font-serif mt-1">{wordData.term || "Term"}</h2>
-                    <p className="text-sm mt-2 opacity-90 max-w-2xl">{wordData.meaning || "The word's meaning will be displayed here for the users."}</p>
+      {/* 📊 GRID DISPLAY */}
+      <div className="min-h-[400px]">
+        {paginatedItems.length === 0 ? (
+          <div className="bg-white/60 p-16 rounded-3xl text-center border border-[#E09F26]/15 text-gray-400 font-medium">No records found for this section.</div>
+        ) : (
+          <div className={`grid gap-5 animate-fadeIn ${tab === "submissions" ? "grid-cols-1" : isProverbView ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"}`}>
+            
+            {/* CULTURAL CARDS */}
+            {(!isProverbView && tab !== "submissions") && paginatedItems.map(item => (
+              <div key={item.id} className="bg-white rounded-3xl overflow-hidden border border-[#E09F26]/20 flex flex-col hover:border-[#E09F26]/50 transition-all group shadow-xs">
+                <div className="h-36 relative bg-gray-50 border-b border-gray-100 overflow-hidden">
+                  {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt=""/> : <div className="w-full h-full flex items-center justify-center text-gray-200"><BookOpen size={24}/></div>}
+                  {item.status === "returned" && <div className="absolute top-2 left-2 bg-red-600 text-white text-[8px] px-2 py-0.5 rounded font-black uppercase tracking-tighter">Returned</div>}
                 </div>
-              </div>
-
-              <button type="submit" className="bg-[#800000] text-white px-10 py-3 rounded-xl font-bold hover:opacity-90 transition mt-4">Publish Word</button>
-            </form>
-          </div>
-        )}
-
-        {/* TABS NAVIGATION */}
-        <div className="flex flex-wrap gap-3 mb-6">
-          <button onClick={()=>{setTab("posted"); setSearchQuery("");}} className={`px-6 py-2 rounded-xl font-bold transition ${tab==="posted" ? "bg-[#800000] text-white" : "bg-white text-[#800000] border border-[#800000]"}`}>Posted Items</button>
-          <button onClick={()=>{setTab("submissions"); setSearchQuery("");}} className={`px-6 py-2 rounded-xl font-bold transition ${tab==="submissions" ? "bg-[#800000] text-white" : "bg-white text-[#800000] border border-[#800000]"}`}>My Submissions</button>
-          <button onClick={()=>{setTab("returned"); setSearchQuery("");}} className={`px-6 py-2 rounded-xl font-bold transition ${tab==="returned" ? "bg-[#800000] text-white" : "bg-white text-[#800000] border border-[#800000]"}`}>Returned Items</button>
-        </div>
-
-        {/* ================= POSTED TAB ================= */}
-        {tab === "posted" && (
-          <div className="animate-fadeIn">
-            <div className="flex flex-col md:flex-row gap-4 mb-6">
-              <div className="flex-1 relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                <input 
-                  type="text" 
-                  placeholder="Search posted items..." 
-                  className="w-full pl-12 pr-4 py-2.5 rounded-xl border border-gray-200 focus:border-[#800000] outline-none shadow-sm"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <select 
-                className="px-4 py-2.5 rounded-xl border border-gray-200 focus:border-[#800000] outline-none bg-white min-w-[160px] shadow-sm"
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-              >
-                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-              </select>
-            </div>
-
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {postedItems.map(item => (
-                <div key={item.id} className="bg-white rounded-2xl shadow-md overflow-hidden flex flex-col hover:shadow-xl transition-all h-full">
-                  <div className="h-48 overflow-hidden bg-gray-100">
-                    {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" alt=""/> : <div className="w-full h-full flex items-center justify-center text-gray-400">No Image</div>}
-                  </div>
-                  <div className="p-5 flex flex-col flex-1">
-                    <h3 className="font-bold text-[#800000] text-lg line-clamp-1">{item.title}</h3>
-                    <p className="text-xs text-gray-500 mb-4">{item.category}</p>
-                    <button onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "encoder" })} className="mt-auto w-full bg-[#800000] text-white py-2 rounded-xl text-sm">View Details</button>
-                  </div>
-                </div>
-              ))}
-              {postedItems.length === 0 && <p className="col-span-full text-center py-10 text-gray-400 italic">No posted items found.</p>}
-            </div>
-          </div>
-        )}
-
-        {/* ================= SUBMISSIONS TAB ================= */}
-        {tab === "submissions" && (
-          <div className="animate-fadeIn">
-            <div className="flex flex-col md:flex-row gap-4 mb-6">
-              <div className="flex-1 relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                <input 
-                  type="text" 
-                  placeholder="Search by name or status..." 
-                  className="w-full pl-12 pr-4 py-2.5 rounded-xl border border-gray-200 focus:border-[#800000] outline-none shadow-sm"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <select 
-                className="px-4 py-2.5 rounded-xl border border-gray-200 focus:border-[#800000] outline-none bg-white min-w-[160px] shadow-sm"
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-              >
-                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-              </select>
-            </div>
-
-            <div className="bg-white rounded-2xl shadow-md overflow-hidden overflow-x-auto border border-gray-100">
-              <table className="w-full text-left">
-                <thead className="bg-[#800000] text-white">
-                  <tr>
-                    <th className="p-4">Item Name</th>
-                    <th className="p-4">Category</th>
-                    <th className="p-4">Date Uploaded</th>
-                    <th className="p-4">Status</th>
-                    <th className="p-4 text-center">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {submissionItems.map((item) => (
-                    <tr key={item.id} className="border-b hover:bg-gray-50 transition">
-                      <td className="p-4 font-bold text-gray-800">{item.title}</td>
-                      <td className="p-4 text-sm text-gray-600">{item.category}</td>
-                      <td className="p-4 text-sm text-gray-600">{formatDate(item.createdAt)}</td>
-                      <td className="p-4">
-                        <span className={`px-3 py-1 rounded-full text-white text-[10px] uppercase font-bold tracking-wider ${
-                          item.status === 'pending' ? 'bg-yellow-500' : item.status === 'validated' ? 'bg-blue-500' : 'bg-red-500'
-                        }`}>{item.status}</span>
-                      </td>
-                      <td className="p-4 text-center">
-                        <button onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "encoder" })} className="text-[#800000] p-2 hover:bg-gray-100 rounded-lg transition"><Eye size={18}/></button>
-                      </td>
-                    </tr>
-                  ))}
-                  {submissionItems.length === 0 && <tr><td colSpan="5" className="p-10 text-center text-gray-400 italic">No submissions found.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ================= RETURNED TAB ================= */}
-        {tab === "returned" && (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-fadeIn">
-            {returnedItems.map(item => (
-              <div key={item.id} className="bg-white rounded-2xl shadow-md overflow-hidden flex flex-col hover:shadow-xl transition-all h-full border border-red-100">
-                <div className="h-48 overflow-hidden relative bg-gray-50">
-                  {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" alt=""/> : <div className="w-full h-full flex items-center justify-center text-gray-400">No Image</div>}
-                  <div className="absolute top-2 left-2 bg-red-600 text-white text-[10px] px-2 py-1 rounded font-bold uppercase">Returned</div>
-                </div>
-                <div className="p-5 flex flex-col flex-1">
-                  <h3 className="font-bold text-[#800000] text-lg line-clamp-1">{item.title}</h3>
-                  <div className="bg-red-50 p-3 rounded-xl text-[11px] text-red-700 my-3 border border-red-100 italic">
-                    <span className="font-bold block not-italic mb-1 text-[10px]">Feedback:</span>
-                    "{item.feedback || "Please check details for corrections."}"
-                  </div>
-                  <div className="mt-auto flex gap-2">
-                    <button onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "encoder" })} className="flex-1 border-2 border-[#800000] text-[#800000] py-2 rounded-xl text-sm font-semibold hover:bg-[#800000] hover:text-white transition">View</button>
-                    <button onClick={() => changePage("upload", { editItem: item })} className="flex-1 bg-[#D4A017] text-white py-2 rounded-xl text-sm font-semibold flex items-center justify-center gap-1 hover:opacity-90 transition"><RotateCcw size={14}/> Edit</button>
-                  </div>
+                <div className="p-4 flex flex-col flex-1">
+                  <span className="text-[8px] font-black uppercase text-[#E09F26] mb-1 tracking-widest">{item.category}</span>
+                  <h3 className="font-bold text-[#4A0C16] text-sm line-clamp-2 font-serif mb-4 leading-tight">{item.title}</h3>
+                  <button onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "encoder" })} className="w-full mt-auto bg-gray-50 text-[#4A0C16] py-2.5 rounded-xl text-[10px] font-bold hover:bg-[#4A0C16] hover:text-white transition-all border border-gray-100">
+                    View
+                  </button>
                 </div>
               </div>
             ))}
-            {returnedItems.length === 0 && <p className="col-span-full text-center py-10 text-gray-400 italic">No returned items to show.</p>}
+
+            {/* PROVERB CARDS */}
+            {isProverbView && paginatedItems.map(item => (
+              <div key={item.id} onClick={() => changePage("proverbdetail", { itemId: item.id, role: "encoder", isPending: item.status === "pending_moderation" })} className="bg-white rounded-3xl flex flex-col shadow-xs border border-[#E09F26]/20 hover:border-[#E09F26]/80 hover:shadow-lg transition-all duration-300 h-[200px] p-6 cursor-pointer group relative overflow-hidden">
+                <div className="flex justify-between items-start mb-3">
+                  <span className="text-[9px] bg-[#FEF9C3] text-[#A16207] px-2.5 py-1 rounded-lg border border-[#FEF08A] font-black uppercase tracking-widest">{item.category || "Proverb"}</span>
+                  {item.status === "returned" && <span className="text-[8px] bg-red-600 text-white px-2 py-0.5 rounded font-black tracking-widest uppercase">REVISION</span>}
+                </div>
+                <div className="flex gap-4 items-start flex-1 overflow-hidden">
+                  <Quote size={24} className="text-[#E09F26] mt-1 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity" />
+                  <div className="flex flex-col gap-1.5 w-full min-w-0">
+                    <h3 className="text-lg font-black text-[#4A0C16] italic font-serif line-clamp-2 leading-tight">"{item.proverb}"</h3>
+                    <p className="text-[11px] text-gray-500 line-clamp-2 font-medium leading-relaxed">{item.meaning}</p>
+                  </div>
+                </div>
+                <div className="mt-auto pt-3 border-t border-gray-50 flex justify-end">
+                   <span className="text-[9px] font-black text-[#E09F26] uppercase tracking-widest group-hover:text-[#4A0C16] transition-colors">Open Profile &rarr;</span>
+                </div>
+              </div>
+            ))}
+
+            {/* SUBMISSIONS TABLE */}
+            {tab === "submissions" && (
+              <div className="bg-white rounded-3xl border border-[#E09F26]/20 overflow-hidden shadow-sm">
+                <table className="w-full text-left">
+                  <thead className="bg-[#4A0C16] text-[#E09F26] text-[9px] font-black uppercase tracking-widest">
+                    <tr><th className="p-5 pl-8">Resource Title</th><th className="p-5">Registry Status</th><th className="p-5 text-right pr-8">Action</th></tr>
+                  </thead>
+                  <tbody className="text-xs">
+                    {paginatedItems.map(item => (
+                      <tr key={item.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
+                        <td className="p-5 pl-8 font-bold text-[#4A0C16] font-serif text-sm">{item.title || item.proverb}</td>
+                        <td className="p-5">
+                          <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
+                            item.status === 'returned' ? 'bg-red-50 text-red-600 border-red-100' : 
+                            item.status === 'posted' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-[#FEF9C3] text-[#A16207] border-[#FEF08A]'
+                          }`}>{item.status}</span>
+                        </td>
+                        <td className="p-5 text-right pr-8">
+                          <button onClick={() => changePage(item.proverb ? "proverbdetail" : "itemdetail", { itemId: item.id, role: "encoder" })} className="bg-gray-100 hover:bg-[#4A0C16] hover:text-white px-4 py-1.5 rounded-lg text-[10px] font-black transition-all">VIEW</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
-    </div>
+
+      {renderPaginationSlider(currentTabItems.length, itemsPerPage)}
+
+      {/* 🔐 UNIVERSAL CONFIRMATION MODAL */}
+      <ConfirmationModal 
+        isOpen={confirmConfig.isOpen} 
+        config={confirmConfig} 
+        onClose={closeConfirm} 
+      />
+    </MasterDashboardShell>
   );
 };
 
