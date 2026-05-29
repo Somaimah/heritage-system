@@ -9,6 +9,7 @@ import { useToast } from "../../components/ToastContext";
 
 // Import the Confirmation Modal
 import ConfirmationModal from "../../components/ConfirmationModal";
+import { detectMediaType } from "../../utils/mediaUtils";
 
 import {
   collection,
@@ -25,7 +26,8 @@ import {
   Image as ImageIcon, 
   FileText, 
   Eye, 
-  ImageOff
+  ImageOff,
+  CheckCircle2 // Added for upload success checkmarks
 } from "lucide-react";
 
 const UploadPage = ({ changePage, editItem }) => {
@@ -36,6 +38,7 @@ const UploadPage = ({ changePage, editItem }) => {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [tagsInput, setTagsInput] = useState(""); // <-- ADDED: State for Metadata Tags
 
   const [origin, setOrigin] = useState("");
   const [author, setAuthor] = useState("");
@@ -43,6 +46,56 @@ const UploadPage = ({ changePage, editItem }) => {
 
   const [imageUrl, setImageUrl] = useState("");
   const [fileUrl, setFileUrl] = useState("");
+
+  // --- CLOUDINARY UPLOAD LOGIC ---
+  const handleCloudinaryUpload = (targetField) => {
+    if (!window.cloudinary) {
+      showToast("Upload widget not ready. Please refresh.", "error");
+      return;
+    }
+
+    const widget = window.cloudinary.createUploadWidget(
+      {
+        cloudName: "diy5guxxs",
+        uploadPreset: "heritage_preset",
+        sources: ["local", "url"],
+        resourceType: "auto", // Auto allows images, docs, pdfs, etc.
+        multiple: false,
+        theme: "minimal",
+        styles: {
+          palette: {
+            window: "#FFFFFF",
+            windowBorder: "#4A0C16",
+            tabIcon: "#E09F26",
+            menuIcons: "#4A0C16",
+            textDark: "#000000",
+            textLight: "#FFFFFF",
+            link: "#E09F26",
+            action: "#4A0C16",
+            inactiveTabIcon: "#4A0C16",
+            error: "#F44235",
+            inProgress: "#E09F26",
+            complete: "#20B832",
+            sourceBg: "#F4F1EA"
+          }
+        }
+      },
+      (error, result) => {
+        if (!error && result && result.event === "success") {
+          // Determine which field gets the URL based on the button clicked
+          if (targetField === "image") {
+            setImageUrl(result.info.secure_url);
+          } else if (targetField === "file") {
+            setFileUrl(result.info.secure_url);
+          }
+          showToast("Media uploaded and linked successfully!", "success");
+        } else if (error) {
+          showToast("Upload failed. Try again.", "error");
+        }
+      }
+    );
+    widget.open();
+  };
 
   // --- MODAL STATE ---
   const [confirmConfig, setConfirmConfig] = useState({
@@ -62,6 +115,10 @@ const UploadPage = ({ changePage, editItem }) => {
       setCategory(editItem.category || "Artifact");
       setTitle(editItem.title || "");
       setDescription(editItem.description || "");
+      
+      // <-- ADDED: Pre-fill tags by joining the array back into a comma-separated string
+      setTagsInput(editItem.tags ? editItem.tags.join(", ") : ""); 
+      
       setOrigin(editItem.origin || "");
       setAuthor(editItem.author || "");
       setRecordType(editItem.recordType || "Fun Fact");
@@ -73,13 +130,12 @@ const UploadPage = ({ changePage, editItem }) => {
   // ================= SUBMISSION TRIGGERS & EXECUTORS =================
 
   const triggerSubmit = (e) => {
-    e.preventDefault(); // Stop standard form submission
+    e.preventDefault(); 
     
     if (!auth.currentUser) {
       return showToast("User not logged in", "error");
     }
 
-    // Configure and open the modal based on edit/new state
     setConfirmConfig({
       isOpen: true,
       title: editItem ? "Confirm Resubmission" : "Confirm Upload",
@@ -96,20 +152,47 @@ const UploadPage = ({ changePage, editItem }) => {
     setLoading(true);
 
     try {
+      const mediaAssets = [];
+      
+      if (imageUrl) {
+        mediaAssets.push({
+          url: imageUrl,
+          type: detectMediaType(imageUrl),
+          isPrimary: true, 
+          source: "cloudinary" // Updated to reflect new source
+        });
+      }
+      
+      if (fileUrl) {
+        mediaAssets.push({
+          url: fileUrl,
+          type: detectMediaType(fileUrl), 
+          isPrimary: false,
+          source: "cloudinary" // Updated to reflect new source
+        });
+      }
+
+      // <-- ADDED: Convert comma-separated string to an array of lowercase strings
+      const tagsArray = tagsInput
+        .split(',')
+        .map(tag => tag.trim().toLowerCase())
+        .filter(tag => tag.length > 0);
+
       const data = {
         title,
         description,
+        tags: tagsArray, // <-- ADDED: Pass the array to Firestore
         category,
-        imageUrl,
-        fileUrl,
+        media: mediaAssets, 
+        imageUrl, 
+        fileUrl,  
         ...(category === "Artifact" && { origin }),
         ...(category === "Publication" && { author }),
         ...(category === "Historical Records" && { recordType }),
         status: "pending", 
       };
-
+      
       if (editItem) {
-        // --- RESUBMIT EXISTING ITEM ---
         const itemRef = doc(db, "culturalItems", editItem.id);
         data.updatedAt = serverTimestamp();
         await updateDoc(itemRef, data);
@@ -127,7 +210,6 @@ const UploadPage = ({ changePage, editItem }) => {
 
         showToast("Item successfully updated and resubmitted!", "success");
       } else {
-        // --- UPLOAD NEW ITEM ---
         data.createdAt = serverTimestamp();
         data.createdBy = auth.currentUser.uid;
         data.createdByEmail = auth.currentUser.email;
@@ -161,7 +243,6 @@ const UploadPage = ({ changePage, editItem }) => {
   return (
     <div className="min-h-screen bg-[#FEF9C3] flex flex-col font-sans antialiased selection:bg-[#4A0C16]/10">
       
-      {/* OKIR PATTERN TOP BAR CANVAS */}
       <div 
         className="w-full h-5 bg-[#E09F26] border-b border-[#4A0C16]/30 shadow-sm"
         style={{ 
@@ -171,7 +252,6 @@ const UploadPage = ({ changePage, editItem }) => {
         }} 
       />
 
-      {/* MATCHING NAV BAR HEADER */}
       <header className="bg-[#4A0C16] text-white px-8 py-6 flex items-center justify-between shadow-md border-b border-[#E09F26]/20">
         <div>
           <h1 className="text-2xl font-bold font-serif tracking-wide flex items-center gap-3">
@@ -188,20 +268,16 @@ const UploadPage = ({ changePage, editItem }) => {
         </button>
       </header>
 
-      {/* MAIN CONTENT AREA */}
       <div className="flex-1 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
         
-        {/* LEFT COLUMN: FORM MANIFEST */}
         <div className="lg:col-span-7 xl:col-span-8">
           <div className="bg-white p-6 md:p-8 rounded-3xl shadow-[0_10px_40px_-6px_rgba(74,12,22,0.06)] border border-[#E09F26]/10">
             <h2 className="text-xl font-bold text-[#4A0C16] font-serif mb-6 border-b pb-4">
               Item Specifications Hub
             </h2>
             
-            {/* Swapped onSubmit from handleSubmit to triggerSubmit */}
             <form onSubmit={triggerSubmit} className="space-y-6">
               
-              {/* Category Selection */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Category</label>
                 <select 
@@ -215,7 +291,6 @@ const UploadPage = ({ changePage, editItem }) => {
                 </select>
               </div>
 
-              {/* Title Input */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Title</label>
                 <input 
@@ -227,7 +302,6 @@ const UploadPage = ({ changePage, editItem }) => {
                 />
               </div>
 
-              {/* Description Input */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Description</label>
                 <textarea 
@@ -239,7 +313,18 @@ const UploadPage = ({ changePage, editItem }) => {
                 />
               </div>
 
-              {/* Conditional Inputs Based on Category */}
+              {/* <-- ADDED: Metadata Tags Field --> */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Metadata Tags</label>
+                <input 
+                  className="w-full border border-gray-200 p-3.5 rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm font-medium text-gray-800" 
+                  placeholder="e.g., dance, mindanao, bamboo, traditional (comma separated)"
+                  value={tagsInput} 
+                  onChange={(e) => setTagsInput(e.target.value)} 
+                />
+              </div>
+              {/* <-- END ADDED --> */}
+
               <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
                 {category === "Artifact" && (
                   <div>
@@ -280,34 +365,65 @@ const UploadPage = ({ changePage, editItem }) => {
                 )}
               </div>
 
-              {/* Media Links Canvas */}
+              {/* UPDATED: Media Links Canvas */}
               <div className="space-y-4 pt-2">
                 <div>
                   <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
-                    <ImageIcon size={14} className="text-[#E09F26]" /> Image Resource URL
+                    <ImageIcon size={14} className="text-[#E09F26]" /> Image Resource
                   </label>
-                  <input 
-                    className="w-full border border-gray-200 p-3.5 rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm text-gray-700" 
-                    placeholder="https://example.com/archival-photo.jpg"
-                    value={imageUrl} 
-                    onChange={(e) => setImageUrl(e.target.value)} 
-                  />
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input 
+                        type="url"
+                        readOnly
+                        className="w-full bg-gray-100 border border-gray-200 rounded-xl p-3.5 pr-10 text-sm text-gray-500 italic outline-none cursor-not-allowed" 
+                        placeholder="Click upload to add an image..."
+                        value={imageUrl} 
+                      />
+                      {imageUrl && (
+                        <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" size={18} />
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCloudinaryUpload("image")}
+                      className="flex items-center gap-2 px-6 bg-[#E09F26] text-[#4A0C16] font-bold rounded-xl hover:bg-[#cf9021] transition-all shadow-md active:scale-95"
+                    >
+                      <Upload size={16} />
+                      <span>Upload</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div>
-                  <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
-                    <FileText size={14} className="text-[#E09F26]" /> PDF Document URL (Optional Integration)
+                  <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 mb-2 mt-4">
+                    <FileText size={14} className="text-[#E09F26]" /> PDF Document (Optional)
                   </label>
-                  <input 
-                    className="w-full border border-gray-200 p-3.5 rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm text-gray-700" 
-                    placeholder="https://example.com/academic-manuscript.pdf"
-                    value={fileUrl} 
-                    onChange={(e) => setFileUrl(e.target.value)} 
-                  />
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input 
+                        type="url"
+                        readOnly
+                        className="w-full bg-gray-100 border border-gray-200 rounded-xl p-3.5 pr-10 text-sm text-gray-500 italic outline-none cursor-not-allowed" 
+                        placeholder="Click upload to add a PDF..."
+                        value={fileUrl} 
+                      />
+                      {fileUrl && (
+                        <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" size={18} />
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCloudinaryUpload("file")}
+                      className="flex items-center gap-2 px-6 bg-[#E09F26] text-[#4A0C16] font-bold rounded-xl hover:bg-[#cf9021] transition-all shadow-md active:scale-95"
+                    >
+                      <Upload size={16} />
+                      <span>Upload</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* Action Operations Execution Platform */}
               <button 
                 type="submit" 
                 disabled={loading}
@@ -329,17 +445,14 @@ const UploadPage = ({ changePage, editItem }) => {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: INTERACTIVE VISUAL CARD PREVIEW */}
         <div className="lg:col-span-5 xl:col-span-4 hidden lg:block">
           <div className="sticky top-8 space-y-4">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
               <Eye size={14} className="text-[#E09F26]" /> Live Repository Card Preview
             </h3>
             
-            {/* Standard Dashboard Card Architecture */}
             <div className="bg-white rounded-3xl shadow-[0_10px_30px_rgba(74,12,22,0.04)] overflow-hidden flex flex-col h-[390px] border border-gray-100 group transition-all duration-300 hover:shadow-[0_20px_40px_rgba(74,12,22,0.08)]">
               
-              {/* Image Window Viewport */}
               <div className="h-48 w-full bg-gray-50 overflow-hidden relative border-b border-gray-50 flex items-center justify-center">
                 {imageUrl ? (
                   <img
@@ -356,7 +469,6 @@ const UploadPage = ({ changePage, editItem }) => {
                 )}
               </div>
 
-              {/* Dynamic Metadata Output Content Workspace */}
               <div className="p-5 flex flex-col justify-between flex-1 bg-white">
                 <div>
                   <h3 className="font-bold text-xl font-serif text-[#4A0C16] line-clamp-2 leading-tight tracking-wide">
@@ -376,7 +488,6 @@ const UploadPage = ({ changePage, editItem }) => {
         
       </div>
 
-      {/* 🔐 UNIVERSAL CONFIRMATION MODAL */}
       <ConfirmationModal 
         isOpen={confirmConfig.isOpen} 
         config={confirmConfig} 

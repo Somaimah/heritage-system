@@ -16,7 +16,7 @@ import {
 
 import { useToast } from "../../components/ToastContext";
 import MasterDashboardShell from "../../components/MasterDashboardShell";
-import ConfirmationModal from "../../components/ConfirmationModal"; // 🆕 Imported Confirmation Modal
+import ConfirmationModal from "../../components/ConfirmationModal";
 
 const ModeratorDashboard = ({ changePage, triggerLogout }) => {
   const { showToast } = useToast(); 
@@ -33,7 +33,6 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
   const [currentPage, setCurrentPage] = useState(1);
 
   const isProverbView = tab === "published_proverbs" || tab === "proverb_validation";
-  
   const itemsPerPage = isProverbView ? 10 : 15; 
 
   const categoriesList = ["All", "Wisdom", "Relationships & Community", "Honor & Respect", "General Life Lessons"];
@@ -50,7 +49,6 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
 
   const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
 
-  // 1. Logout Confirmation Handler
   const handleLogoutClick = () => {
     setConfirmConfig({
       isOpen: true,
@@ -111,8 +109,6 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
       let updateTime = 0;
       if (i.updatedAt?.toMillis) updateTime = i.updatedAt.toMillis();
       else if (i.updatedAt?.seconds) updateTime = i.updatedAt.seconds * 1000;
-      else if (typeof i.updatedAt === 'number') updateTime = i.updatedAt;
-      else if (typeof i.updatedAt === 'string') updateTime = new Date(i.updatedAt).getTime();
       return updateTime >= startOfToday && ["posted", "published"].includes(i.status);
     }).length;
 
@@ -120,9 +116,6 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
       let updateTime = 0;
       if (i.updatedAt?.toMillis) updateTime = i.updatedAt.toMillis();
       else if (i.updatedAt?.seconds) updateTime = i.updatedAt.seconds * 1000;
-      else if (typeof i.updatedAt === 'number') updateTime = i.updatedAt;
-      else if (typeof i.updatedAt === 'string') updateTime = new Date(i.updatedAt).getTime();
-      
       const stat = (i.status || "").toLowerCase();
       return updateTime >= startOfToday && ["validated", "posted", "approved", "published"].includes(stat);
     }).length;
@@ -137,24 +130,9 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
     let pendingCount = pendingItems.length;
 
     if (pendingCount > 0) {
-      const oldest = pendingItems.sort((a, b) => {
-        let timeA = 0; let timeB = 0;
-        if (a.createdAt?.toMillis) timeA = a.createdAt.toMillis();
-        else if (typeof a.createdAt === 'string') timeA = new Date(a.createdAt).getTime();
-        
-        if (b.createdAt?.toMillis) timeB = b.createdAt.toMillis();
-        else if (typeof b.createdAt === 'string') timeB = new Date(b.createdAt).getTime();
-
-        return timeA - timeB;
-      })[0];
-
+      const oldest = pendingItems.sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0))[0];
       oldestItemName = oldest.title || oldest.proverb || "Untitled Item";
-      
-      let oldestDate = null;
-      if (oldest.createdAt?.toDate) oldestDate = oldest.createdAt.toDate();
-      else if (typeof oldest.createdAt === 'string') oldestDate = new Date(oldest.createdAt);
-      else if (typeof oldest.createdAt === 'number') oldestDate = new Date(oldest.createdAt);
-
+      let oldestDate = oldest.createdAt?.toDate ? oldest.createdAt.toDate() : null;
       if (oldestDate) {
         const diffInMs = now.getTime() - oldestDate.getTime();
         const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
@@ -171,40 +149,51 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
       culturalPendingCount: culturalItems.filter(i => ["pending", "uploaded"].includes(i.status)).length,
       proverbPendingCount: proverbItems.filter(i => ["pending_moderation", "pending"].includes(i.status)).length,
       cultPosted: culturalItems.filter(i => ["posted", "approved"].includes(i.status)),
-      provPosted: proverbItems.filter(i => ["posted", "published", "validated", "approved"].includes(i.status))
+      provPosted: proverbItems.filter(i => ["posted", "published", "validated", "approved"].includes((i.status || "").toLowerCase()))
     };
   }, [culturalItems, proverbItems]);
 
   const uniqueCategories = useMemo(() => ["all", ...new Set(culturalItems.map(item => item.category).filter(Boolean))], [culturalItems]);
 
-  // ================= FILTER ENGINE =================
+  // ================= IMPROVED FILTER ENGINE (With Metadata Search) =================
   const filteredActiveItems = useMemo(() => {
     const normalizedQuery = searchQuery.toLowerCase().trim();
     let baseList = [];
 
+    // 1. Determine which base list to use
     if (tab === "cultural_validation") baseList = culturalItems.filter(i => ["pending", "uploaded"].includes((i.status || "").toLowerCase()));
     else if (tab === "proverb_validation") baseList = proverbItems.filter(i => ["pending_moderation", "pending", "uploaded", "submitted"].includes((i.status || "").toLowerCase()));
     else if (tab === "published_proverbs") baseList = metrics.provPosted;
     else if (tab === "archive") baseList = metrics.cultPosted;
     else if (tab === "feedbacks") return systemFeedbackList;
 
+    // 2. Filter base list by Search Query (Including Tags) and Category
     return baseList.filter(item => {
-      if (tab === "published_proverbs") {
-        const itemCategory = item.category || "General Life Lessons";
-        return (selectedCategory === "all" || selectedCategory === "All" || itemCategory === selectedCategory) &&
-          (!normalizedQuery || (item.proverb || "").toLowerCase().includes(normalizedQuery) || (item.meaning || "").toLowerCase().includes(normalizedQuery));
-      }
-      return (!normalizedQuery || (item.title || "").toLowerCase().includes(normalizedQuery) || (item.proverb || "").toLowerCase().includes(normalizedQuery)) &&
-        (tab === "proverb_validation" || selectedCategory === "all" || item.category === selectedCategory);
+      // Logic for Metadata/Tag Search
+      const hasTagMatch = Array.isArray(item.tags) && item.tags.some(tag => tag.toLowerCase().includes(normalizedQuery));
+      
+      const matchesSearch = !normalizedQuery || 
+        (item.title || "").toLowerCase().includes(normalizedQuery) ||
+        (item.proverb || "").toLowerCase().includes(normalizedQuery) ||
+        (item.meaning || "").toLowerCase().includes(normalizedQuery) ||
+        (item.description || "").toLowerCase().includes(normalizedQuery) ||
+        hasTagMatch;
+
+      // Logic for Category Filter
+      const itemCategory = item.category || (isProverbView ? "General Life Lessons" : "Uncategorized");
+      const matchesCategory = 
+        selectedCategory.toLowerCase() === "all" || 
+        itemCategory === selectedCategory;
+
+      return matchesSearch && matchesCategory;
     });
-  }, [tab, culturalItems, proverbItems, metrics, searchQuery, selectedCategory, systemFeedbackList]);
+  }, [tab, culturalItems, proverbItems, metrics, searchQuery, selectedCategory, systemFeedbackList, isProverbView]);
 
   useEffect(() => { setCurrentPage(1); }, [tab, searchQuery, selectedCategory]);
 
   const totalPages = Math.ceil(filteredActiveItems.length / itemsPerPage) || 1;
   const paginatedItems = useMemo(() => filteredActiveItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage), [filteredActiveItems, currentPage, itemsPerPage]);
 
-  // 🔄 Updated Feedback Toggle Handler with Confirmation
   const handleToggleFeedbackStatus = (feedbackId, currentStatus) => {
     const newStatus = currentStatus === "resolved" ? "pending" : "resolved";
     const actionText = newStatus === "resolved" ? "Resolve" : "Unresolve";
@@ -212,9 +201,7 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
     setConfirmConfig({
       isOpen: true,
       title: `${actionText} Feedback`,
-      message: newStatus === "resolved" 
-        ? "Are you sure you want to mark this feedback as resolved?"
-        : "Are you sure you want to move this feedback back to pending?",
+      message: newStatus === "resolved" ? "Are you sure you want to mark this feedback as resolved?" : "Are you sure you want to move this feedback back to pending?",
       type: newStatus === "resolved" ? "success" : "warning",
       confirmText: `Yes, ${actionText}`,
       onConfirm: async () => {
@@ -222,9 +209,7 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
         try {
           await updateDoc(doc(db, "systemFeedbacks", feedbackId), { status: newStatus });
           showToast(`Feedback status marked as ${newStatus}.`, "success");
-        } catch (err) { 
-          showToast(err.message, "error"); 
-        }
+        } catch (err) { showToast(err.message, "error"); }
       }
     });
   };
@@ -246,10 +231,9 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
       sidebarLinks={moderatorLinks} 
       notificationCount={unreadCount} 
       onNotificationClick={() => changePage("notifications", { fromPage: "dashboard" })} 
-      onLogout={handleLogoutClick} // 🔄 Updated to use modal
+      onLogout={handleLogoutClick}
     >
       
-      {/* 📊 MAROON STAT CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-8">
         <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
           <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Proverbs Today</p>
@@ -283,30 +267,26 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
 
       <hr className="my-8 border-t border-[#E09F26]/20 w-full" />
 
-      {/* 🔍 CONTROL CONTROLLERS */}
       {tab !== "feedbacks" && (
         <div className="flex flex-col sm:flex-row gap-4 mb-8 items-stretch sm:items-center justify-between">
           <div className="relative flex-1 max-w-xl">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <input type="text" placeholder={isProverbView ? "Search traditional wisdom..." : "Search entries..."} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-[#E09F26]/20 focus:outline-none focus:border-[#E09F26] text-sm font-medium text-[#4A0C16] bg-white shadow-sm transition-all" />
+            <input type="text" placeholder={isProverbView ? "Search wisdom or metadata tags..." : "Search entries or metadata tags..."} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-[#E09F26]/20 focus:outline-none focus:border-[#E09F26] text-sm font-medium text-[#4A0C16] bg-white shadow-sm transition-all" />
           </div>
-          {tab !== "proverb_validation" && (
-            <div className="relative min-w-[240px]">
-              <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-[#E09F26]" size={16} />
-              <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="w-full pl-11 pr-10 py-3.5 rounded-2xl border border-[#E09F26]/20 bg-white cursor-pointer text-sm font-bold text-[#4A0C16] appearance-none shadow-sm transition-all">
-                {isProverbView ? categoriesList.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Proverb Kinds" : cat}</option>) : uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === "all" ? "All Categories" : cat}</option>)}
-              </select>
-            </div>
-          )}
+          <div className="relative min-w-[240px]">
+            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-[#E09F26]" size={16} />
+            <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="w-full pl-11 pr-10 py-3.5 rounded-2xl border border-[#E09F26]/20 bg-white cursor-pointer text-sm font-bold text-[#4A0C16] appearance-none shadow-sm transition-all">
+              {isProverbView ? categoriesList.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Proverb Kinds" : cat}</option>) : uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === "all" ? "All Categories" : cat}</option>)}
+            </select>
+          </div>
         </div>
       )}
 
-      {/* 📊 GRID DISPLAY */}
       <div className="min-h-[400px]">
         {paginatedItems.length === 0 ? (
           <div className="bg-white/60 p-16 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center justify-center">
             <Inbox className="w-12 h-12 text-gray-300 mb-3" />
-            <p className="text-gray-500 text-sm font-medium">No records found within this category.</p>
+            <p className="text-gray-500 text-sm font-medium">No records found matching your current filter.</p>
           </div>
         ) : (
           <div className={`grid gap-5 animate-fadeIn ${
@@ -314,8 +294,6 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
             tab === "feedbacks" ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4" : 
             "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:!grid-cols-5"
           }`}>
-            
-            {/* CULTURAL CARDS */}
             {(tab === "cultural_validation" || tab === "archive") && paginatedItems.map(item => (
               <div key={item.id} onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "moderator", isPending: tab === "cultural_validation" })} className="bg-white rounded-3xl overflow-hidden border border-[#E09F26]/20 flex flex-col hover:border-[#E09F26]/50 hover:shadow-lg cursor-pointer transition-all group">
                 <div className="h-36 relative bg-gray-50 border-b">
@@ -336,7 +314,6 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
               </div>
             ))}
 
-            {/* PROVERB CARDS */}
             {(isProverbView) && paginatedItems.map(item => (
               <div key={item.id} onClick={() => changePage("proverbdetail", { itemId: item.id, fromPage: "dashboard", role: "moderator", isPending: tab === "proverb_validation" })} className="bg-white rounded-2xl flex flex-col border border-[#E09F26]/20 hover:border-[#E09F26]/80 hover:shadow-lg transition-all h-[220px] p-6 cursor-pointer group relative overflow-hidden">
                 <div className="flex justify-between items-start mb-3">
@@ -356,7 +333,6 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
               </div>
             ))}
 
-            {/* FEEDBACKS */}
             {tab === "feedbacks" && paginatedItems.map(fb => (
               <div key={fb.id} className="bg-white rounded-2xl flex flex-col shadow-xs border border-[#E09F26]/20 p-4 h-48">
                 <div className="flex justify-between items-center mb-2">
@@ -382,55 +358,27 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
         )}
       </div>
 
-      {/* 🔢 SLIDING RANGE PAGINATION */}
       {totalPages > 1 && (
         <div className="mt-10 pt-6 border-t border-[#E09F26]/10 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-gray-400 font-medium">
             Showing <span className="font-bold text-[#4A0C16]">{Math.min(currentPage * itemsPerPage, filteredActiveItems.length)}</span> of <span className="font-bold text-[#4A0C16]">{filteredActiveItems.length}</span>
           </p>
-          
           <div className="flex items-center gap-2 w-full sm:w-auto justify-center">
-            <button 
-              disabled={currentPage <= 1} 
-              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} 
-              className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-sm"
-            >
+            <button disabled={currentPage <= 1} onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-sm">
               <ChevronLeft size={18} />
             </button>
-
             <div className="flex flex-col items-center flex-1 max-w-[250px] w-full px-4">
-              <span className="text-xs font-bold text-[#4A0C16] font-mono mb-2 uppercase tracking-widest">
-                Page {currentPage} of {totalPages}
-              </span>
-              <input 
-                type="range" 
-                min="1" 
-                max={totalPages} 
-                value={currentPage} 
-                onChange={(e) => setCurrentPage(Number(e.target.value))}
-                className="w-full h-1.5 bg-[#E09F26]/30 rounded-lg appearance-none cursor-pointer accent-[#4A0C16]"
-                title="Slide to change pages"
-              />
+              <span className="text-xs font-bold text-[#4A0C16] font-mono mb-2 uppercase tracking-widest">Page {currentPage} of {totalPages}</span>
+              <input type="range" min="1" max={totalPages} value={currentPage} onChange={(e) => setCurrentPage(Number(e.target.value))} className="w-full h-1.5 bg-[#E09F26]/30 rounded-lg appearance-none cursor-pointer accent-[#4A0C16]" />
             </div>
-
-            <button 
-              disabled={currentPage >= totalPages} 
-              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} 
-              className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-sm"
-            >
+            <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-sm">
               <ChevronRight size={18} />
             </button>
           </div>
         </div>
       )}
 
-      {/* 🔐 UNIVERSAL CONFIRMATION MODAL */}
-      <ConfirmationModal 
-        isOpen={confirmConfig.isOpen} 
-        config={confirmConfig} 
-        onClose={closeConfirm} 
-      />
-
+      <ConfirmationModal isOpen={confirmConfig.isOpen} config={confirmConfig} onClose={closeConfirm} />
     </MasterDashboardShell>
   );
 };

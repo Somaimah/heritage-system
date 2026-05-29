@@ -34,10 +34,15 @@ const SharedPublishedProverbs = ({ changePage, role, starredProverbs = [], onTog
     const filtered = proverbs.filter(item => {
       const itemCategory = item.category || "General Life Lessons";
       const matchesCategory = selectedCategory === "All" || itemCategory === selectedCategory;
+      
+      // <-- ADDED: Check if the search query matches any of the metadata tags
+      const hasTagMatch = Array.isArray(item.tags) && item.tags.some(tag => tag.toLowerCase().includes(normalizedQuery));
+
       const matchesSearch = !normalizedQuery || 
         (item.proverb || "").toLowerCase().includes(normalizedQuery) || 
         (item.meaning || "").toLowerCase().includes(normalizedQuery) ||
-        itemCategory.toLowerCase().includes(normalizedQuery);
+        itemCategory.toLowerCase().includes(normalizedQuery) ||
+        hasTagMatch; // <-- ADDED: Include tag matching in the condition
 
       return matchesCategory && matchesSearch;
     });

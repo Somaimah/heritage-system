@@ -4,7 +4,7 @@ import okirPattern from "../../assets/okir-pattern.png";
 import Loader from "../../components/Loader";
 
 // Context & Components
-import { useToast } from "../../components/ToastContext"; // Ensure path is correct
+import { useToast } from "../../components/ToastContext"; 
 import ConfirmationModal from "../../components/ConfirmationModal";
 
 import {
@@ -29,7 +29,11 @@ import {
   Trash2,
   Eye,
   Calendar,
-  Hammer
+  Hammer,
+  ArrowLeft,
+  Volume2,
+  ExternalLink,
+  Image as ImageIcon
 } from "lucide-react";
 
 const InfoCard = ({ label, value, icon: Icon }) => (
@@ -109,14 +113,14 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
     return () => unsubscribeAuth();
   }, [itemId, role, item?.status]);
 
-  // ================= FIREBASE EXECUTORS =================
+  // ================= FIREBASE EXECUTORS & NOTIFICATIONS =================
   const executeStatusChange = async (newStatus, requiresFeedback = false) => {
     try {
-      const updateData = { 
-        status: newStatus, 
+      const updateData = {
+        status: newStatus,
         feedback: requiresFeedback ? feedback : "",
         isDeleted: false,
-        updatedAt: serverTimestamp() 
+        updatedAt: serverTimestamp()
       };
       
       if (newStatus === "posted") updateData.postedAt = serverTimestamp();
@@ -132,28 +136,28 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
           itemId: item.id,
           createdAt: serverTimestamp(),
           read: false,
-          isReadBy: [] 
+          isReadBy: []
         });
       }
 
       // 2. Notify Admin
       if (role === "moderator" && newStatus === "validated") {
         await setDoc(doc(collection(db, "notifications")), {
-          targetRole: "admin", 
-          role: "admin", 
+          targetRole: "admin",
+          role: "admin",
           message: `Review required: Moderator validated "${item.title || item.term}".`,
           itemId: item.id,
           type: "validation_request",
           createdAt: serverTimestamp(),
           read: false,
-          isReadBy: [] 
+          isReadBy: []
         });
       }
 
       showToast(`Record status updated to ${newStatus} successfully.`, "success");
       changePage(fromPage ? fromPage : "dashboard");
-    } catch (err) { 
-      showToast("Update Failed: " + err.message, "error"); 
+    } catch (err) {
+      showToast("Update Failed: " + err.message, "error");
     }
   };
 
@@ -166,8 +170,8 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
       });
       showToast("Item successfully moved to Recycle Bin.", "success");
       changePage(fromPage ? fromPage : "dashboard");
-    } catch (err) { 
-      showToast("Delete Failed: " + err.message, "error"); 
+    } catch (err) {
+      showToast("Delete Failed: " + err.message, "error");
     }
   };
 
@@ -178,8 +182,8 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
         restoredAt: serverTimestamp()
       });
       showToast("Item restored to active records.", "success");
-    } catch (err) { 
-      showToast("Restoration Failed: " + err.message, "error"); 
+    } catch (err) {
+      showToast("Restoration Failed: " + err.message, "error");
     }
   };
 
@@ -205,8 +209,8 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
         setBookmarked(true);
         showToast("Saved to your collection!", "success");
       }
-    } catch (err) { 
-      showToast("Bookmark Action Failed: " + err.message, "error"); 
+    } catch (err) {
+      showToast("Bookmark Action Failed: " + err.message, "error");
     }
   };
 
@@ -266,9 +270,22 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
   // ================= PERMISSIONS =================
   const isValidationMode = (role === "moderator" && item.status === "pending") || (role === "admin" && (item.status === "validated" || item.status === "pending"));
   const canEdit = (role === "encoder" || role === "admin") && (item.status === "returned" || item.status === "pending");
-  const canDelete = role === "admin"; 
+  const canDelete = role === "admin";
   const hideInternalStats = role === "user" || role === "guest" || fromPage === "overview";
   const hasFeedback = feedback.trim().length > 0;
+
+  // ================= MEDIA NORMALIZATION =================
+  const allMedia = [];
+  if (item.media && Array.isArray(item.media)) allMedia.push(...item.media);
+  if (item.imageUrl && !allMedia.some(m => m.url === item.imageUrl)) {
+    allMedia.push({ url: item.imageUrl, type: 'image', isPrimary: true });
+  }
+  if (item.fileUrl && !allMedia.some(m => m.url === item.fileUrl)) {
+    allMedia.push({ url: item.fileUrl, type: 'pdf', isPrimary: false });
+  }
+
+  const primaryVisual = allMedia.find(m => m.type === 'image' || m.type === 'audio');
+  const secondaryAssets = allMedia.filter(m => m !== primaryVisual);
 
   return (
     <div className="min-h-screen bg-[#FEF9C3] font-sans antialiased pb-12">
@@ -290,26 +307,75 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
         <div className="bg-white rounded-3xl shadow-xl border border-[#E09F26]/10 overflow-hidden">
           <div className="grid lg:grid-cols-2 gap-8 p-6 md:p-10">
             
-            {/* LEFT COLUMN: VISUALS */}
-            <div className="space-y-8">
-              <div className="relative overflow-hidden rounded-2xl border bg-gray-50 cursor-zoom-in group shadow-inner" onClick={() => setPreviewImage(true)}>
-                {item.imageUrl ? (
-                  <img src={item.imageUrl} alt="media" className="w-full h-[520px] object-cover transition-transform group-hover:scale-105" />
+            {/* LEFT COLUMN: VISUALS & MEDIA */}
+            <div className="space-y-6">
+              <div className="relative overflow-hidden rounded-3xl border-2 border-white bg-gray-100 shadow-xl group">
+                {primaryVisual?.type === 'image' ? (
+                  <div className="cursor-zoom-in" onClick={() => setPreviewImage(primaryVisual.url)}>
+                    <img 
+                      src={primaryVisual.url} 
+                      alt="Primary Heritage Media" 
+                      className="w-full h-[520px] object-cover transition-transform duration-700 group-hover:scale-105" 
+                    />
+                    <div className="absolute bottom-4 right-4 bg-black/50 backdrop-blur-md text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Eye size={20} />
+                    </div>
+                  </div>
+                ) : primaryVisual?.type === 'audio' ? (
+                  <div className="h-[300px] flex flex-col items-center justify-center bg-[#4A0C16] text-[#FEF9C3] p-10 text-center">
+                    <Volume2 size={64} className="mb-4 animate-pulse" />
+                    <h4 className="font-serif text-xl mb-6">Oral History / Audio Record</h4>
+                    <audio controls className="w-full h-12">
+                      <source src={primaryVisual.url} type="audio/mpeg" />
+                    </audio>
+                  </div>
                 ) : (
-                  <div className="h-[520px] flex flex-col items-center justify-center text-gray-400 gap-2">
-                    <FileText size={48} className="text-gray-200" />
-                    <span className="text-xs font-bold uppercase tracking-widest">Visual Data Missing</span>
+                  <div className="h-[520px] flex flex-col items-center justify-center text-gray-400 bg-gray-50">
+                    <ImageIcon size={48} className="text-gray-200 mb-4" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">No Primary Visual Linked</span>
+                    {secondaryAssets.some(a => a.type === 'pdf') && (
+                      <span className="text-xs text-[#E09F26] font-bold mt-2 bg-[#E09F26]/10 px-4 py-1.5 rounded-full">
+                        Please see attached document below
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
 
-              {item.fileUrl && (
-                <div className="pt-2">
-                  <div className="flex items-center gap-2 text-[#4A0C16] font-bold text-lg mb-4 font-serif">
-                    <FileText size={20} className="text-[#E09F26]" /> 
-                    Reference Document
+              {/* Supplemental Archives (PDFs) */}
+              {secondaryAssets.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#E09F26] flex items-center gap-2">
+                    <FileText size={14} /> Supplemental Archives ({secondaryAssets.length})
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 gap-4">
+                    {secondaryAssets.map((asset, index) => (
+                      <div key={index}>
+                        {asset.type === 'pdf' ? (
+                          <div className="bg-gray-50 border border-gray-100 p-6 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
+                            <div className="flex items-center gap-4">
+                               <div className="bg-[#4A0C16]/10 p-4 rounded-full text-[#4A0C16]">
+                                  <FileText size={24} />
+                               </div>
+                               <div>
+                                 <h4 className="font-bold text-[#4A0C16] text-sm">Historical Manuscript</h4>
+                                 <p className="text-xs text-gray-500">PDF Document attached.</p>
+                               </div>
+                            </div>
+                            <a 
+                              href={asset.url} 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="inline-flex items-center gap-2 bg-[#4A0C16] text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-[#E09F26] hover:text-[#4A0C16] transition-colors w-full sm:w-auto justify-center"
+                            >
+                              <ExternalLink size={14} /> Read Document
+                            </a>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
                   </div>
-                  <iframe src={item.fileUrl} title="PDF Viewer" className="w-full h-[600px] border rounded-2xl bg-gray-50 shadow-sm" />
                 </div>
               )}
             </div>
@@ -324,7 +390,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
                  </div>
               </div>
               
-              <div className="space-y-6">
+              <div className="space-y-6 flex-1 flex flex-col">
                 <section>
                     <h3 className="text-xs font-bold uppercase tracking-widest text-[#E09F26] mb-3 flex items-center gap-2">
                         <div className="h-px bg-[#E09F26]/30 flex-1"></div> Narrative Description <div className="h-px bg-[#E09F26]/30 flex-1"></div>
@@ -358,22 +424,22 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
                 <div className="pt-8 border-t border-gray-100 mt-auto">
                     {isValidationMode && !item.isDeleted && (
                         <div className="mb-6 space-y-4 bg-[#FEF9C3]/30 p-4 rounded-2xl border border-[#E09F26]/20">
-                            <textarea 
-                                placeholder="State specific reasons for returning..." 
-                                value={feedback} 
-                                onChange={(e) => setFeedback(e.target.value)} 
-                                className="w-full border-2 border-white rounded-xl p-4 text-sm focus:outline-none focus:border-[#E09F26] bg-white/80 shadow-sm transition-all" 
+                            <textarea
+                                placeholder="State specific reasons for returning..."
+                                value={feedback}
+                                onChange={(e) => setFeedback(e.target.value)}
+                                className="w-full border-2 border-white rounded-xl p-4 text-sm focus:outline-none focus:border-[#E09F26] bg-white/80 shadow-sm transition-all"
                             />
                             <div className="flex gap-3">
-                                <button 
-                                    onClick={() => triggerStatusChange(role === "moderator" ? "validated" : "posted", false)} 
+                                <button
+                                    onClick={() => triggerStatusChange(role === "moderator" ? "validated" : "posted", false)}
                                     disabled={hasFeedback}
                                     className={`flex-1 font-bold py-4 rounded-xl text-xs uppercase flex justify-center items-center gap-2 transition-all ${hasFeedback ? 'bg-gray-200 text-gray-400' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-200'}`}
                                 >
                                     <CheckCircle size={16} /> {role === "admin" ? "Publish to Live" : "Verify Entry"}
                                 </button>
-                                <button 
-                                    onClick={() => triggerStatusChange("returned", true)} 
+                                <button
+                                    onClick={() => triggerStatusChange("returned", true)}
                                     className="flex-1 bg-amber-500 text-white hover:bg-amber-600 font-bold py-4 rounded-xl text-xs uppercase flex justify-center items-center gap-2 shadow-lg shadow-amber-100 transition-all"
                                 >
                                     <RotateCcw size={16} /> Return to Encoder
@@ -385,7 +451,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
                     <div className="flex flex-wrap gap-3">
                         {role === "user" && !item.isDeleted && (
                             <button onClick={toggleBookmark} className={`flex-1 py-4 px-6 rounded-2xl font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all ${bookmarked ? "bg-[#E09F26] text-[#4A0C16] scale-95" : "bg-[#4A0C16] text-white hover:bg-[#31080E]"}`}>
-                                <Bookmark size={16} fill={bookmarked ? "currentColor" : "none"} /> 
+                                <Bookmark size={16} fill={bookmarked ? "currentColor" : "none"} />
                                 {bookmarked ? "Item Saved" : "Save to Collection"}
                             </button>
                         )}
@@ -402,7 +468,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
                             </button>
                         )}
 
-                        {item.isDeleted && (
+                        {item.isDeleted && canDelete && (
                              <button onClick={triggerRestore} className="flex-1 bg-emerald-600 text-white font-bold py-4 rounded-2xl text-xs uppercase flex justify-center items-center gap-2 hover:bg-emerald-700 transition-all">
                                 <RotateCcw size={16} /> Restore Entry
                              </button>
@@ -416,18 +482,18 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
       </div>
 
       {/* FULLSCREEN IMAGE OVERLAY */}
-      {previewImage && item.imageUrl && (
+      {previewImage && (
         <div className="fixed inset-0 z-[100] bg-[#4A0C16]/95 backdrop-blur-md flex items-center justify-center p-5 cursor-zoom-out animate-fadeIn" onClick={() => setPreviewImage(false)}>
           <button className="absolute top-8 right-8 text-white hover:rotate-90 transition-transform"><X size={32} /></button>
-          <img src={item.imageUrl} alt="Archival Preview" className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" />
+          <img src={previewImage} alt="Archival Preview" className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" />
         </div>
       )}
 
       {/* 🔐 UNIVERSAL CONFIRMATION MODAL */}
-      <ConfirmationModal 
-        isOpen={confirmConfig.isOpen} 
-        config={confirmConfig} 
-        onClose={closeConfirm} 
+      <ConfirmationModal
+        isOpen={confirmConfig.isOpen}
+        config={confirmConfig}
+        onClose={closeConfirm}
       />
     </div>
   );

@@ -200,9 +200,16 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
     return { categoryData: catData, uniqueCategories: uniqueCats };
   }, [activeItems, allPosted]);
 
+  // UPDATED: Enhanced Item filtering (Title, Description, Meaning, and Tags)
   const { displayValidated, displayPosted } = useMemo(() => {
     const filtered = activeItems.filter(item => {
-      const matchesSearch = (item.title || "").toLowerCase().includes(searchQuery.toLowerCase());
+      const searchLower = searchQuery.toLowerCase();
+      const matchesSearch = 
+        (item.title || "").toLowerCase().includes(searchLower) ||
+        (item.description || "").toLowerCase().includes(searchLower) ||
+        (item.meaning || "").toLowerCase().includes(searchLower) ||
+        (item.tags && Array.isArray(item.tags) && item.tags.some(tag => tag.toLowerCase().includes(searchLower)));
+        
       const matchesCategory = selectedCategory === "All" || item.category === selectedCategory;
       return matchesSearch && matchesCategory;
     });
@@ -215,6 +222,15 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
     };
   }, [activeItems, searchQuery, selectedCategory]);
 
+  // NEW: Search for Users
+  const displayUsers = useMemo(() => {
+    return users.filter(u => {
+      const searchLower = searchQuery.toLowerCase();
+      return (u.email || "").toLowerCase().includes(searchLower) ||
+             (u.role || "").toLowerCase().includes(searchLower);
+    });
+  }, [users, searchQuery]);
+
   const recentActivity = useMemo(() => {
     return [...activeItems].sort((a, b) => {
       const timeA = a.createdAt?.toMillis() || 0;
@@ -223,9 +239,17 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
     }).slice(0, 5);
   }, [activeItems]);
 
+  // UPDATED: Search for Recycle Bin Items
   const activeBinItems = useMemo(() => {
-    return binFilter === "cultural" ? binnedCulturalItems : binnedProverbs;
-  }, [binFilter, binnedCulturalItems, binnedProverbs]);
+    const baseItems = binFilter === "cultural" ? binnedCulturalItems : binnedProverbs;
+    return baseItems.filter(item => {
+      const searchLower = searchQuery.toLowerCase();
+      return (item.title || "").toLowerCase().includes(searchLower) ||
+             (item.proverb || "").toLowerCase().includes(searchLower) ||
+             (item.description || "").toLowerCase().includes(searchLower) ||
+             (item.meaning || "").toLowerCase().includes(searchLower);
+    });
+  }, [binFilter, binnedCulturalItems, binnedProverbs, searchQuery]);
 
   // Pagination Boundaries
   const indexOfLastValidation = validationPage * itemsPerPage;
@@ -238,7 +262,7 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
 
   const indexOfLastUser = usersPage * itemsPerPage;
   const indexOfFirstUser = indexOfLastUser - itemsPerPage;
-  const currentUsersItems = users.slice(indexOfFirstUser, indexOfLastUser);
+  const currentUsersItems = displayUsers.slice(indexOfFirstUser, indexOfLastUser);
 
   const indexOfLastBin = binPage * itemsPerPage;
   const indexOfFirstBin = indexOfLastBin - itemsPerPage;
@@ -476,29 +500,31 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
 
       <hr className="my-8 border-t border-[#E09F26]/20 mx-auto w-[98%]" />
 
-      {/* 🔍 FILTERING UTILITY UNIT */}
-      {(tab === "validation" || tab === "archive") && (
+      {/* 🔍 UPDATED: FILTERING UTILITY UNIT (Now appears for Users and Bin too) */}
+      {(tab === "validation" || tab === "archive" || tab === "users" || tab === "recycle_bin") && (
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
           <div className="relative flex-1 group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#E09F26] transition-colors" size={16} />
             <input 
               type="text" 
-              placeholder="Search entries..." 
+              placeholder={tab === "users" ? "Search by email or role..." : "Search entries, descriptions, tags..."} 
               value={searchQuery} 
               onChange={(e) => setSearchQuery(e.target.value)} 
               className="w-full pl-11 pr-4 py-3 rounded-2xl border border-[#E09F26]/20 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-xs bg-white text-sm font-medium text-[#4A0C16] transition-all" 
             />
           </div>
-          <div className="relative sm:min-w-[200px]">
-            <select 
-              value={selectedCategory} 
-              onChange={(e) => setSelectedCategory(e.target.value)} 
-              className="w-full px-4 py-3 rounded-2xl border border-[#E09F26]/20 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-xs bg-white cursor-pointer text-sm font-bold text-[#4A0C16] transition-all appearance-none"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234A0C16'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1rem center', backgroundSize: '1.1em' }}
-            >
-              {uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Categories" : cat}</option>)}
-            </select>
-          </div>
+          {(tab === "validation" || tab === "archive") && (
+            <div className="relative sm:min-w-[200px]">
+                <select 
+                value={selectedCategory} 
+                onChange={(e) => setSelectedCategory(e.target.value)} 
+                className="w-full px-4 py-3 rounded-2xl border border-[#E09F26]/20 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-xs bg-white cursor-pointer text-sm font-bold text-[#4A0C16] transition-all appearance-none"
+                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234A0C16'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1rem center', backgroundSize: '1.1em' }}
+                >
+                {uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Categories" : cat}</option>)}
+                </select>
+            </div>
+          )}
         </div>
       )}
 
@@ -657,10 +683,10 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
         {/* TAB: ACCESS CONTROL */}
         {tab === "users" && (
           <div className="animate-fadeIn">
-            {users.length === 0 ? (
+            {displayUsers.length === 0 ? (
               <div className="bg-white/60 backdrop-blur-sm p-16 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center justify-center max-w-lg mx-auto">
                 <Users className="w-10 h-10 text-gray-300 mb-2" />
-                <p className="text-gray-400 text-sm font-medium">No system security records found within registry.</p>
+                <p className="text-gray-400 text-sm font-medium">No system security records matching your search.</p>
               </div>
             ) : (
               <div className="bg-white rounded-3xl shadow-[0_4px_25px_rgba(74,12,22,0.01)] overflow-hidden border border-[#E09F26]/15">
@@ -695,7 +721,7 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
                 </div>
               </div>
             )}
-            {renderPaginationSlider(usersPage, setUsersPage, users.length, itemsPerPage)}
+            {renderPaginationSlider(usersPage, setUsersPage, displayUsers.length, itemsPerPage)}
           </div>
         )}
 
@@ -801,7 +827,7 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
             {activeBinItems.length === 0 ? (
               <div className="bg-white/60 backdrop-blur-sm p-16 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center justify-center max-w-lg mx-auto">
                 <Trash2 className="w-10 h-10 text-gray-200 mb-2" />
-                <p className="text-gray-400 text-sm font-medium">Bin directory is currently empty.</p>
+                <p className="text-gray-400 text-sm font-medium">Bin directory is currently empty or no results match your search.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

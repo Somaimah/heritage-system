@@ -46,6 +46,7 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
   // UI & Filter States
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  const [sortBy, setSortBy] = useState("newest"); // NEW: Sorting State
   const [currentPage, setCurrentPage] = useState(1);
   
   const itemsPerPage = 25;
@@ -177,21 +178,43 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     return () => unsub();
   }, []);
 
+  // UPDATE: Reset page when filters OR sort changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, category, activeTab]);
+  }, [search, category, sortBy, activeTab]);
 
   // ================= PERFORMANCE MEMOIZATION =================
   const filteredItems = useMemo(() => {
     const lowerSearch = search.toLowerCase().trim();
-    return items.filter(item => {
+    
+    // 1. Filter Logic
+    let result = items.filter(item => {
+      // Improved: Checks title, description, and tags array
       const matchesSearch = 
         (item.title?.toLowerCase().includes(lowerSearch)) ||
-        (item.description?.toLowerCase().includes(lowerSearch));
-      const matchesCategory = category === "all" || item.category === category;
+        (item.description?.toLowerCase().includes(lowerSearch)) ||
+        (Array.isArray(item.tags) && item.tags.some(tag => tag.toLowerCase().includes(lowerSearch)));
+        
+      // Improved: Case-insensitive category match
+      const matchesCategory = category === "all" || item.category?.toLowerCase() === category.toLowerCase();
+      
       return matchesSearch && matchesCategory;
     });
-  }, [items, search, category]);
+
+    // 2. Sorting Logic
+    result.sort((a, b) => {
+      if (sortBy === "a-z") return (a.title || "").localeCompare(b.title || "");
+      if (sortBy === "z-a") return (b.title || "").localeCompare(a.title || "");
+      
+      // Safely extract timestamps from Firestore format
+      const getTime = (t) => t?.seconds ? t.seconds : (t?.toMillis ? t.toMillis() : 0);
+      
+      if (sortBy === "oldest") return getTime(a.createdAt) - getTime(b.createdAt);
+      return getTime(b.createdAt) - getTime(a.createdAt); // Default: newest
+    });
+
+    return result;
+  }, [items, search, category, sortBy]);
 
   const { currentItems, totalPages, indexOfFirstItem, indexOfLastItem } = useMemo(() => {
     const lastIdx = currentPage * itemsPerPage;
@@ -401,40 +424,71 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
         {/* EXPLORER DASHBOARD VIEW (Cultural Items) */}
         {activeTab === "dashboard" && (
           <>
-            <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex flex-col md:flex-row gap-4 mb-2">
+              
+              {/* IMPROVED: Search Bar with Clear Button */}
               <div className="relative flex-1 group">
                 <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#E09F26] transition-colors" size={20} />
                 <input 
                   type="text" 
-                  placeholder={t('userDashboard.searchPlaceholder', 'Search collection...')} 
+                  placeholder={t('userDashboard.searchPlaceholder', 'Search by title, description, or tags...')} 
                   value={search} 
                   onChange={(e) => setSearch(e.target.value)} 
-                  className="w-full pl-14 pr-5 py-3.5 rounded-2xl border border-[#E09F26]/30 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-sm bg-white text-sm font-medium text-[#4A0C16] transition-all" 
+                  className="w-full pl-14 pr-12 py-3.5 rounded-2xl border border-[#E09F26]/30 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-sm bg-white text-sm font-medium text-[#4A0C16] transition-all" 
                 />
+                {search && (
+                  <button 
+                    onClick={() => setSearch("")} 
+                    className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#4A0C16] transition-colors p-1"
+                    title="Clear search"
+                  >
+                    <X size={16} strokeWidth={3} />
+                  </button>
+                )}
               </div>
-              <div className="relative md:w-64">
-                <select 
-                  value={category} 
-                  onChange={(e) => setCategory(e.target.value)} 
-                  className="w-full px-5 py-3.5 rounded-2xl border border-[#E09F26]/30 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-sm bg-white cursor-pointer text-sm font-bold text-[#4A0C16] transition-all appearance-none uppercase tracking-wide"
-                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234A0C16'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1.25rem center', backgroundSize: '1.2em' }}
-                >
-                  <option value="all">{t('userDashboard.catAll', 'All Categories')}</option>
-                  <option value="Artifact">{t('userDashboard.catArtifact', 'Artifact')}</option>
-                  <option value="Publication">{t('userDashboard.catPublication', 'Publication')}</option>
-                  <option value="Historical Records">{t('userDashboard.catHistorical', 'Historical Records')}</option>
-                </select>
+              
+              {/* IMPROVED: Filters Container */}
+              <div className="flex flex-col sm:flex-row gap-4 md:w-auto">
+                {/* Category Dropdown */}
+                <div className="relative w-full sm:w-48">
+                  <select 
+                    value={category} 
+                    onChange={(e) => setCategory(e.target.value)} 
+                    className="w-full px-5 py-3.5 rounded-2xl border border-[#E09F26]/30 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-sm bg-white cursor-pointer text-sm font-bold text-[#4A0C16] transition-all appearance-none uppercase tracking-wide"
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234A0C16'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1.25rem center', backgroundSize: '1.2em' }}
+                  >
+                    <option value="all">{t('userDashboard.catAll', 'All Categories')}</option>
+                    <option value="Artifact">{t('userDashboard.catArtifact', 'Artifact')}</option>
+                    <option value="Publication">{t('userDashboard.catPublication', 'Publication')}</option>
+                    <option value="Historical Records">{t('userDashboard.catHistorical', 'Historical Records')}</option>
+                  </select>
+                </div>
+
+                {/* NEW: Sort By Dropdown */}
+                <div className="relative w-full sm:w-48">
+                  <select 
+                    value={sortBy} 
+                    onChange={(e) => setSortBy(e.target.value)} 
+                    className="w-full px-5 py-3.5 rounded-2xl border border-[#E09F26]/30 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-sm bg-white cursor-pointer text-sm font-bold text-[#4A0C16] transition-all appearance-none uppercase tracking-wide"
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234A0C16'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1.25rem center', backgroundSize: '1.2em' }}
+                  >
+                    <option value="newest">{t('userDashboard.sortNewest', 'Newest First')}</option>
+                    <option value="oldest">{t('userDashboard.sortOldest', 'Oldest First')}</option>
+                    <option value="a-z">{t('userDashboard.sortAZ', 'Title A - Z')}</option>
+                    <option value="z-a">{t('userDashboard.sortZA', 'Title Z - A')}</option>
+                  </select>
+                </div>
               </div>
             </div>
 
             {filteredItems.length === 0 ? (
-              <div className="bg-white/80 p-20 rounded-3xl text-center border border-[#E09F26]/20 flex flex-col items-center justify-center min-h-[350px]">
+              <div className="bg-white/80 mt-4 p-20 rounded-3xl text-center border border-[#E09F26]/20 flex flex-col items-center justify-center min-h-[350px]">
                 <Search className="w-12 h-12 text-gray-300 mb-4" />
                 <p className="text-gray-500 font-medium text-base">{t('userDashboard.noItems', 'No cultural items found matching your search.')}</p>
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-5 animate-fadeIn">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-5 mt-4 animate-fadeIn">
                   {currentItems.map(item => {
                     const isBookmarked = bookmarks.includes(item.id);
                     return (

@@ -5,13 +5,13 @@ import {
   getDoc, 
   updateDoc, 
   setDoc, 
-  deleteDoc, // <-- Added for permanent deletion
+  deleteDoc, 
   collection, 
   serverTimestamp 
 } from "firebase/firestore";
 import { 
   Quote, Calendar, Tag, ChevronLeft, AlertCircle, Trash2,
-  CheckCircle, XCircle, MessageSquare, Edit3, Save, Loader2, RotateCcw
+  CheckCircle, XCircle, MessageSquare, Edit3, Save, Loader2, RotateCcw, Volume2
 } from "lucide-react";
 import { useToast } from "../../components/ToastContext";
 
@@ -300,10 +300,36 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
             </div>
           ) : (
             <div className="animate-fadeIn">
-              <div className="relative mb-12">
+              <div className="relative mb-10">
                 <Quote size={60} className="absolute -top-8 -left-6 text-[#E09F26] opacity-10" />
                 <h1 className="text-4xl md:text-5xl font-serif font-black text-[#4A0C16] italic leading-tight relative z-10">"{item.proverb}"</h1>
               </div>
+
+              {/* --- NEW AUDIO PLAYER SECTION --- */}
+              {item.audioUrl && (
+                <div className="mb-10 p-5 sm:p-6 bg-[#4A0C16] rounded-[24px] shadow-[0_10px_25px_rgba(74,12,22,0.15)] border border-[#E09F26]/30 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
+                  
+                  <div className="bg-gradient-to-br from-[#E09F26] to-[#b37a1a] p-4 rounded-2xl text-[#4A0C16] shrink-0 shadow-inner">
+                    <Volume2 size={28} />
+                  </div>
+                  
+                  <div className="flex-1 w-full z-10">
+                    <p className="text-[#E09F26] text-[11px] font-black uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-[#E09F26] animate-pulse"></span>
+                      Audio Pronunciation
+                    </p>
+                    <audio controls className="w-full h-11 rounded-lg">
+                      <source src={item.audioUrl} type="audio/mpeg" />
+                      <source src={item.audioUrl} type="audio/ogg" />
+                      <source src={item.audioUrl} type="audio/wav" />
+                      Your browser does not support the audio element.
+                    </audio>
+                  </div>
+                </div>
+              )}
+              {/* --------------------------------- */}
+
               <div className="pl-6 border-l-4 border-[#E09F26]/30">
                 <h4 className="text-[10px] uppercase tracking-[0.2em] font-black text-[#E09F26] mb-3">Meaning / Translation</h4>
                 <p className="text-xl text-gray-700 leading-relaxed font-medium italic">{item.meaning}</p>

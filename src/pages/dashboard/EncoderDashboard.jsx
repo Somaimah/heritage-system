@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { auth, db } from "../../firebase/firebase";
-import { collection, query, onSnapshot, where, doc } from "firebase/firestore"; // 🆕 Added 'doc'
+import { collection, query, onSnapshot, where, doc } from "firebase/firestore"; 
 import {
   BookOpen, Upload, Archive, RotateCcw, Sparkles, Search, LayoutDashboard, ChevronLeft, ChevronRight, Quote, Clock, Edit3
 } from "lucide-react";
@@ -18,8 +18,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [revisionType, setRevisionType] = useState("cultural"); 
   const [unreadNotifications, setUnreadNotifications] = useState(0);
-
-  // 🆕 State to hold the currently published word of the day
   const [todayWordData, setTodayWordData] = useState(null);
 
   const categories = ["all", "Artifact", "Historical Record", "Publication"];
@@ -40,7 +38,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
 
   const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
 
-  // 1. Logout Confirmation Handler
   const handleLogoutClick = () => {
     setConfirmConfig({
       isOpen: true,
@@ -55,8 +52,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     });
   };
 
-  // 2. Word of the Day Publish Confirmation Handler 
-  // 🔄 Updated to handle 'isEdit' dynamically
   const requestWotdConfirm = (onConfirmCallback, isEdit = false) => {
     setConfirmConfig({
       isOpen: true,
@@ -93,8 +88,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   }, [user]);
   
   // ================= DATA LOADERS =================
-  
-  // 🆕 Fetch the Word of the Day
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "wordOfDay", "today"), (docSnap) => {
       if (docSnap.exists()) {
@@ -159,35 +152,58 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     }
 
     const totalPosted = [...items, ...proverbItems].filter(i => 
-      ["posted", "published"].includes((i.status || "").toLowerCase())
+      ["posted", "published", "validated"].includes((i.status || "").toLowerCase())
     ).length;
 
     return { uploadedToday, revisionItemName, daysPassedStr, totalPosted, returnedCount: returnedItems.length };
   }, [items, proverbItems]);
 
-  // ================= FILTERS & PAGINATION =================
+  // ================= FILTERS & SEARCH (Metadata Integrated) =================
+  
   const filteredCulturalItems = useMemo(() => {
+    const queryLower = searchQuery.toLowerCase();
     return items.filter(item => {
-      const titleMatch = (item.title || "").toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = 
+        (item.title || "").toLowerCase().includes(queryLower) ||
+        (item.description || "").toLowerCase().includes(queryLower) ||
+        (item.tags && Array.isArray(item.tags) && item.tags.some(tag => tag.toLowerCase().includes(queryLower)));
       const catMatch = selectedCategory === "all" || item.category === selectedCategory;
-      return titleMatch && catMatch;
+      return matchesSearch && catMatch;
     });
   }, [items, searchQuery, selectedCategory]);
 
   const filteredProverbItems = useMemo(() => {
+    const queryLower = searchQuery.toLowerCase();
     return proverbItems.filter(item => 
-      (item.proverb || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
-      (item.meaning || "").toLowerCase().includes(searchQuery.toLowerCase())
+      (item.proverb || "").toLowerCase().includes(queryLower) || 
+      (item.meaning || "").toLowerCase().includes(queryLower) ||
+      (item.tags && Array.isArray(item.tags) && item.tags.some(tag => tag.toLowerCase().includes(queryLower)))
     );
   }, [proverbItems, searchQuery]);
 
+  // Item subsets for Tabs
   const postedItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "posted" || i.status === "validated"), [filteredCulturalItems]);
   const submissionItems = useMemo(() => filteredCulturalItems.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status)), [filteredCulturalItems]);
   const returnedCulturalItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "returned"), [filteredCulturalItems]);
   const returnedProverbItems = useMemo(() => filteredProverbItems.filter(i => i.status === "returned"), [filteredProverbItems]);
-  const totalReturnedCount = returnedCulturalItems.length + returnedProverbItems.length;
   const postedProverbs = useMemo(() => filteredProverbItems.filter(i => ["posted", "validated", "approved", "published"].includes((i.status || "").toLowerCase())), [filteredProverbItems]);
 
+  // ================= SIDEBAR LINKS (Static Counts) =================
+  const encoderLinks = useMemo(() => {
+    const totalPostedItemsCount = items.filter(i => i.status === "posted" || i.status === "validated").length;
+    const totalSubmissionsCount = items.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status)).length;
+    const totalPostedProverbsCount = proverbItems.filter(i => ["posted", "validated", "approved", "published"].includes((i.status || "").toLowerCase())).length;
+    const totalReturnedBaseCount = items.filter(i => i.status === "returned").length + proverbItems.filter(i => i.status === "returned").length;
+
+    return [
+      { value: "posted", label: "Cultural Archive", icon: <Archive size={16} />, badge: totalPostedItemsCount },
+      { value: "submissions", label: "My Submissions", icon: <LayoutDashboard size={16} />, badge: totalSubmissionsCount },
+      { value: "posted_proverbs", label: "Posted Proverbs", icon: <Quote size={16} />, badge: totalPostedProverbsCount },
+      { value: "returned", label: "Needs Revision", icon: <RotateCcw size={16} />, badge: totalReturnedBaseCount > 0 ? totalReturnedBaseCount : undefined }
+    ];
+  }, [items, proverbItems]);
+
+  // ================= PAGINATION LOGIC =================
   const currentTabItems = useMemo(() => {
     if (tab === "posted") return postedItems;
     if (tab === "submissions") return submissionItems;
@@ -201,18 +217,9 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     return currentTabItems.slice(start, start + itemsPerPage);
   }, [currentTabItems, currentPage, itemsPerPage]);
 
-  const encoderLinks = [
-    { value: "posted", label: "Cultural Archive", icon: <Archive size={16} />, badge: postedItems.length },
-    { value: "submissions", label: "My Submissions", icon: <LayoutDashboard size={16} />, badge: submissionItems.length },
-    { value: "posted_proverbs", label: "Posted Proverbs", icon: <Quote size={16} />, badge: postedProverbs.length },
-    { value: "returned", label: "Needs Revision", icon: <RotateCcw size={16} />, badge: totalReturnedCount > 0 ? totalReturnedCount : undefined }
-  ];
-
-  // ================= PAGINATION SLIDER =================
   const renderPaginationSlider = (totalItems, perPage) => {
     const totalPages = Math.ceil(totalItems / perPage) || 1;
     if (totalItems <= perPage) return null;
-
     return (
       <div className="mt-12 pt-6 border-t border-[#E09F26]/10 flex flex-col sm:flex-row items-center justify-between gap-4">
         <button disabled={currentPage === 1} onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-sm">
@@ -241,7 +248,7 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
       onLogout={handleLogoutClick}
     >
       {/* 📊 METRIC OVERVIEW */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-4">
         <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
           <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Uploaded Today</p>
           <div className="flex items-baseline gap-2">
@@ -249,7 +256,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
             <span className="text-[10px] text-gray-400 font-bold uppercase">Items created today</span>
           </div>
         </div>
-
         <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300 flex flex-col justify-center overflow-hidden">
           <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider mb-1">Need to Revise</p>
           <h2 className={`font-black text-[#4A0C16] font-serif truncate mt-1 ${statsMetrics.returnedCount > 0 ? 'text-lg' : 'text-3xl'}`} title={statsMetrics.revisionItemName}>{statsMetrics.revisionItemName}</h2>
@@ -258,7 +264,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
             <span className={`text-[10px] font-bold uppercase ${statsMetrics.returnedCount > 0 ? "text-red-600" : "text-gray-400"}`}>{statsMetrics.daysPassedStr}</span>
           </div>
         </div>
-
         <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
           <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Total Posted</p>
           <div className="flex items-baseline gap-2">
@@ -268,22 +273,21 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
         </div>
       </div>
 
+      <hr className="mb-4 border-t border-[#E09F26]/10" />
+
       {/* ⚡ ACTION BAR */}
-      <div className="flex flex-wrap gap-3 mb-8">
+      <div className="flex flex-wrap gap-3 mb-5">
         <button onClick={() => changePage("upload")} className="bg-[#4A0C16] text-white px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-[#31080E] transition shadow-sm border border-[#4A0C16]">
           <Upload size={14} /> Upload Cultural Item
         </button>
         <button onClick={() => changePage("uploadProverb")} className="bg-emerald-700 text-white px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-emerald-800 transition shadow-sm border border-emerald-700">
           <Quote size={14} /> Upload Proverb
         </button>
-        
-        {/* 🔄 Button updates text based on whether a word exists today */}
         <button onClick={() => setShowWord(!showWord)} className="bg-[#E09F26] text-[#4A0C16] px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-[#c98a1e] transition shadow-sm border border-[#E09F26]">
           {showWord ? <><Sparkles size={14} /> Close Console</> : todayWordData ? <><Edit3 size={14} /> Edit Word of the Day</> : <><Sparkles size={14} /> Set Word of the Day</>}
         </button>
       </div>
 
-      {/* 🔄 Passes existingData to the console */}
       {showWord && (
         <WordOfTheDayConsole 
           onClose={() => setShowWord(false)} 
@@ -292,13 +296,13 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
         />
       )}
 
-      <hr className="my-8 border-t border-[#E09F26]/10" />
+      <hr className="mb-6 border-t border-[#E09F26]/10" />
 
       {/* 🔍 SEARCH & FILTERS */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1 group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#E09F26]" size={16} />
-          <input type="text" placeholder="Search entries..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-11 pr-4 py-3 rounded-2xl border border-[#E09F26]/20 focus:border-[#E09F26] outline-none bg-white text-sm transition-all" />
+          <input type="text" placeholder="Search entries, descriptions, or metadata tags..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-11 pr-4 py-3 rounded-2xl border border-[#E09F26]/20 focus:border-[#E09F26] outline-none bg-white text-sm transition-all" />
         </div>
         {tab !== "posted_proverbs" && tab !== "returned" && (
           <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="px-4 py-3 rounded-2xl border border-[#E09F26]/20 bg-white text-sm font-bold text-[#4A0C16] outline-none cursor-pointer">
@@ -307,7 +311,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
         )}
       </div>
 
-      {/* 🔄 REVISION TOGGLE */}
       {tab === "returned" && (
         <div className="flex gap-2 mb-6 p-1 bg-gray-100/50 rounded-2xl w-fit border border-gray-100">
           {["cultural", "proverb"].map(type => (
@@ -321,11 +324,10 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
       {/* 📊 GRID DISPLAY */}
       <div className="min-h-[400px]">
         {paginatedItems.length === 0 ? (
-          <div className="bg-white/60 p-16 rounded-3xl text-center border border-[#E09F26]/15 text-gray-400 font-medium">No records found for this section.</div>
+          <div className="bg-white/60 p-16 rounded-3xl text-center border border-[#E09F26]/15 text-gray-400 font-medium">No records found matching your current filter.</div>
         ) : (
           <div className={`grid gap-5 animate-fadeIn ${tab === "submissions" ? "grid-cols-1" : isProverbView ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"}`}>
             
-            {/* CULTURAL CARDS */}
             {(!isProverbView && tab !== "submissions") && paginatedItems.map(item => (
               <div key={item.id} className="bg-white rounded-3xl overflow-hidden border border-[#E09F26]/20 flex flex-col hover:border-[#E09F26]/50 transition-all group shadow-xs">
                 <div className="h-36 relative bg-gray-50 border-b border-gray-100 overflow-hidden">
@@ -342,7 +344,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
               </div>
             ))}
 
-            {/* PROVERB CARDS */}
             {isProverbView && paginatedItems.map(item => (
               <div key={item.id} onClick={() => changePage("proverbdetail", { itemId: item.id, role: "encoder", isPending: item.status === "pending_moderation" })} className="bg-white rounded-3xl flex flex-col shadow-xs border border-[#E09F26]/20 hover:border-[#E09F26]/80 hover:shadow-lg transition-all duration-300 h-[200px] p-6 cursor-pointer group relative overflow-hidden">
                 <div className="flex justify-between items-start mb-3">
@@ -362,12 +363,11 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
               </div>
             ))}
 
-            {/* SUBMISSIONS TABLE */}
             {tab === "submissions" && (
               <div className="bg-white rounded-3xl border border-[#E09F26]/20 overflow-hidden shadow-sm">
                 <table className="w-full text-left">
                   <thead className="bg-[#4A0C16] text-[#E09F26] text-[9px] font-black uppercase tracking-widest">
-                    <tr><th className="p-5 pl-8">Resource Title</th><th className="p-5">Registry Status</th><th className="p-5 text-right pr-8">Action</th></tr>
+                    <tr><th className="p-5 pl-8">Resource Title</th><th className="p-5">Registry Status</th></tr>
                   </thead>
                   <tbody className="text-xs">
                     {paginatedItems.map(item => (
@@ -378,9 +378,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
                             item.status === 'returned' ? 'bg-red-50 text-red-600 border-red-100' : 
                             item.status === 'posted' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-[#FEF9C3] text-[#A16207] border-[#FEF08A]'
                           }`}>{item.status}</span>
-                        </td>
-                        <td className="p-5 text-right pr-8">
-                          <button onClick={() => changePage(item.proverb ? "proverbdetail" : "itemdetail", { itemId: item.id, role: "encoder" })} className="bg-gray-100 hover:bg-[#4A0C16] hover:text-white px-4 py-1.5 rounded-lg text-[10px] font-black transition-all">VIEW</button>
                         </td>
                       </tr>
                     ))}
@@ -394,7 +391,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
 
       {renderPaginationSlider(currentTabItems.length, itemsPerPage)}
 
-      {/* 🔐 UNIVERSAL CONFIRMATION MODAL */}
       <ConfirmationModal 
         isOpen={confirmConfig.isOpen} 
         config={confirmConfig} 
