@@ -38,20 +38,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
 
   const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
 
-  const handleLogoutClick = () => {
-    setConfirmConfig({
-      isOpen: true,
-      title: "Confirm Logout",
-      message: "Are you sure you want to log out of your session?",
-      type: "warning",
-      confirmText: "Log Out",
-      onConfirm: () => {
-        closeConfirm();
-        triggerLogout();
-      }
-    });
-  };
-
   const requestWotdConfirm = (onConfirmCallback, isEdit = false) => {
     setConfirmConfig({
       isOpen: true,
@@ -99,23 +85,27 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     return () => unsub();
   }, []);
 
+  // 🟢 CHANGED: Removed the 'where("createdBy", "==", uid)' filter 
+  // so this now fetches ALL Cultural Items from Firestore
   useEffect(() => {
     const uid = user?.uid || auth.currentUser?.uid;
     if (!uid) return;
-    const q = query(collection(db, "culturalItems"), where("createdBy", "==", uid));
+    const q = query(collection(db, "culturalItems")); 
     const unsub = onSnapshot(q, (snapshot) => {
       setItems(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     });
     return () => unsub();
   }, [user]);
 
+  // 🟢 CHANGED: Removed the local '.filter()' check
+  // so this now saves ALL Proverbs to state instead of just the user's
   useEffect(() => {
     const uid = user?.uid || auth.currentUser?.uid;
     if (!uid) return;
     const q = query(collection(db, "proverb"));
     const unsub = onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setProverbItems(list.filter(item => item.encoderId === uid || item.createdBy === uid || item.userId === uid));
+      setProverbItems(list);
     });
     return () => unsub();
   }, [user]);
@@ -245,7 +235,7 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
       sidebarLinks={encoderLinks}
       notificationCount={unreadNotifications}
       onNotificationClick={() => changePage("notifications", { fromPage: "dashboard" })}
-      onLogout={handleLogoutClick}
+      onLogout={triggerLogout}
     >
       {/* 📊 METRIC OVERVIEW */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-4">

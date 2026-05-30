@@ -4,7 +4,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "./firebase/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Loader from "./components/Loader";
-
+import { useSessionStorage } from "./hooks/useSessionStorage";
 // 🔔 Notification System Context Integration
 import { ToastProvider } from "./components/ToastContext";
 
@@ -26,7 +26,6 @@ import ProverbUploadPage from "./pages/shared/ProverbUploadPage";
 import ItemDetailPage from "./pages/shared/ItemDetailPage";
 import NotificationsPage from "./pages/shared/NotificationsPage";
 import BookmarkPage from "./pages/shared/BookmarkPage";
-// 🟢 FIXED IMPORT PATH AND NAME MATCH
 import SharedPublishedProverbs from "./pages/shared/SharedPublishedProverbs";
 import ProverbDetailPage from "./pages/shared/ProverbDetailPage";
 
@@ -41,20 +40,9 @@ const App = () => {
   const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const [page, setPage] = useState(() => {
-    const saved = localStorage.getItem("saved_page");
-    return saved || "landing";
-  });
-  
-  const [pageData, setPageData] = useState(() => {
-    try {
-      const savedData = localStorage.getItem("saved_page_data");
-      return savedData ? JSON.parse(savedData) : {};
-    } catch (e) {
-      console.error("Failed to parse page data:", e);
-      return {};
-    }
-  });
+  // ✅ MAGIC HAPPENS HERE: useSessionStorage perfectly handles saving and loading for us.
+  const [page, setPage] = useSessionStorage("saved_page", "landing");
+  const [pageData, setPageData] = useSessionStorage("saved_page_data", {});
 
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const pageRef = useRef(page);
@@ -63,12 +51,9 @@ const App = () => {
     if ((newPage === "itemdetail" || newPage === "proverbdetail" || newPage === "upload") && !data.fromPage) {
       data.fromPage = pageRef.current; 
     }
-
     setPage(newPage);
     pageRef.current = newPage;
     setPageData(data);
-    localStorage.setItem("saved_page", newPage);
-    localStorage.setItem("saved_page_data", JSON.stringify(data));
   };
 
   useEffect(() => {
@@ -81,8 +66,8 @@ const App = () => {
       await i18n.changeLanguage('en');
       localStorage.removeItem('i18nextLng');
       
-      localStorage.removeItem("saved_page");
-      localStorage.removeItem("saved_page_data");
+      sessionStorage.removeItem("saved_page");
+      sessionStorage.removeItem("saved_page_data");
       
       setIsLogoutModalOpen(false);
       await signOut(auth);
@@ -116,27 +101,19 @@ const App = () => {
           console.log("DEBUG: Current User Email:", currentUser.email, "| Role from DB:", userRole);
           setRole(userRole);
 
-          const savedPage = localStorage.getItem("saved_page");
+          // ✅ FIXED: We no longer manually read storage here! 
+          // The useSessionStorage hook already put us on the right page on load.
+          // We only push to dashboard if they are logged in but sitting on an auth page.
           if (pageRef.current === "landing" || pageRef.current === "login") {
-            i18n.changeLanguage('en');
-            localStorage.removeItem('i18nextLng');
-            
-            if (savedPage && savedPage !== "landing" && savedPage !== "login") {
-              const savedData = JSON.parse(localStorage.getItem("saved_page_data")) || {};
-              changePage(savedPage, savedData);
-            } else {
-              changePage("dashboard");
-            }
+            changePage("dashboard");
           }
         } else {
           setUser(null);
           setRole("guest");
           
-          if (pageRef.current !== "register" && pageRef.current !== "login" && pageRef.current !== "overview" && pageRef.current !== "landing") {
-            const savedPage = localStorage.getItem("saved_page");
-            if (!savedPage || savedPage === "landing") {
-              changePage("landing");
-            }
+          // Kick to landing if they are logged out but trying to access a secure page
+          if (!["register", "login", "overview", "landing"].includes(pageRef.current)) {
+            changePage("landing");
           }
         }
       } catch (error) {
@@ -152,6 +129,7 @@ const App = () => {
     return () => unsubscribe();
   }, []); 
 
+  // Early return comes AFTER all hooks
   if (loading) {
     return <Loader size="lg" />;
   }
@@ -171,37 +149,30 @@ const App = () => {
       {page === "register" && <Register goBackToLogin={() => changePage("login")} />}
       {page === "overview" && <Overview changePage={changePage} />}
       
+      {/* ✅ FIXED: Removed messy localStorage fallbacks in the JSX since pageData is synced perfectly! */}
       {page === "upload" && (
-        <UploadPage 
-          changePage={changePage} 
-          editItem={pageData?.editItem || JSON.parse(localStorage.getItem("saved_page_data"))?.editItem} 
-        />
+        <UploadPage changePage={changePage} editItem={pageData?.editItem} />
       )}
 
-      {/* 🟢 UPDATED: Proverb Detail Route with LocalStorage Fallbacks */}
       {page === "proverbdetail" && (
         <ProverbDetailPage 
           changePage={changePage} 
-          itemId={pageData?.itemId || JSON.parse(localStorage.getItem("saved_page_data"))?.itemId} 
-          fromPage={pageData?.fromPage || JSON.parse(localStorage.getItem("saved_page_data"))?.fromPage || "dashboard"} 
+          itemId={pageData?.itemId} 
+          fromPage={pageData?.fromPage || "dashboard"} 
           role={role} 
         />
       )}
 
       {page === "uploadProverb" && (
-        <ProverbUploadPage 
-          changePage={changePage} 
-          user={user} 
-          editItem={pageData?.editItem || JSON.parse(localStorage.getItem("saved_page_data"))?.editItem} 
-        />
+        <ProverbUploadPage changePage={changePage} user={user} editItem={pageData?.editItem} />
       )}
       
       {page === "itemdetail" && (
         <ItemDetailPage 
           changePage={changePage} 
-          itemId={pageData?.itemId || JSON.parse(localStorage.getItem("saved_page_data"))?.itemId} 
-          itemType={pageData?.itemType || JSON.parse(localStorage.getItem("saved_page_data"))?.itemType} 
-          fromPage={pageData?.fromPage || JSON.parse(localStorage.getItem("saved_page_data"))?.fromPage || "dashboard"} 
+          itemId={pageData?.itemId} 
+          itemType={pageData?.itemType} 
+          fromPage={pageData?.fromPage || "dashboard"} 
           role={role} 
         />
       )}
@@ -215,9 +186,17 @@ const App = () => {
         </>
       )}
 
-      {/* 🟢 FIXED: Added "proverbdetail" to the Whitelist Array */}
       {!["notifications", "proverb", "proverbdetail", "bookmarks", "landing", "login", "register", "overview", "upload", "uploadProverb", "itemdetail", "dashboard"].includes(page) && (
-        <div className="min-h-screen flex items-center justify-center text-red-600 font-bold text-xl">Page not found</div>
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-center p-4">
+          <h1 className="text-4xl font-bold text-[#4A0C16] mb-2">Error: Page not found</h1>
+          <p className="text-gray-500 mb-6 font-medium">It looks like the system got lost.</p>
+          <button 
+            onClick={() => changePage("dashboard")} 
+            className="px-6 py-3 bg-[#E09F26] text-white font-bold rounded-xl shadow-md hover:bg-[#cf9021] transition-all"
+          >
+            Return to Dashboard
+          </button>
+        </div>
       )}
 
       {/* ================= UNIFIED SYSTEM LOGOUT OVERLAY MODAL ================= */}

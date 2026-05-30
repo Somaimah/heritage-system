@@ -346,19 +346,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     }
   };
 
-  // Intercept Logout Request
-  const handleLogoutRequest = () => {
-    setConfirmModal({
-      isOpen: true,
-      title: t('userDashboard.confirmLogoutTitle', 'Log Out'),
-      message: t('userDashboard.confirmLogoutMessage', 'Are you sure you want to log out of your account?'),
-      onConfirm: () => {
-        setConfirmModal({ isOpen: false, title: "", message: "", onConfirm: null });
-        if (triggerLogout) triggerLogout();
-      }
-    });
-  };
-
   // ================= SIDEBAR TABS LAYOUT =================
   const userSidebarLinks = [
     { value: "dashboard", label: t('sidebar.culturalItems', "Cultural Items"), icon: <LayoutDashboard size={16} /> },
@@ -375,7 +362,7 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
       sidebarLinks={userSidebarLinks}
       notificationCount={unreadNotifications}
       onNotificationClick={() => changePage("notifications", { fromPage: "dashboard" })}
-      onLogout={handleLogoutRequest} 
+      onLogout={triggerLogout}
       setActiveTab={(tabValue) => {
         if (tabValue === "bookmarks") {
           changePage("bookmarks");

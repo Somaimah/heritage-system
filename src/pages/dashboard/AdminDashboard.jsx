@@ -394,17 +394,6 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
     });
   };
 
-  const handleLogoutAttempt = () => {
-    setConfirmConfig({
-      isOpen: true,
-      title: "Terminate Session",
-      message: "Are you sure you want to log out of the administrative console?",
-      type: "logout",
-      confirmText: "Log Out",
-      onConfirm: () => triggerLogout()
-    });
-  };
-
   const handleImageError = (id) => {
     setBrokenImages(prev => ({ ...prev, [id]: true }));
   };
@@ -462,7 +451,7 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
     { value: "validation", label: "Pending Validation", icon: <Layers size={16} />, badge: allValidated.length.toString() },
     { value: "users", label: "Access Controls", icon: <Users size={16} /> },
     { value: "published_proverbs", label: "Posted Proverbs", icon: <Quote size={16} />, badge: publishedProverbs.length.toString() },
-    { value: "archive", label: "Cultural archive", icon: <Archive size={16} />, badge: activeItems.length.toString() },
+    { value: "archive", label: "Cultural archive", icon: <Archive size={16} />, badge: allPosted.length.toString() },
     { value: "recycle_bin", label: "Recycle Bin", icon: <Trash2 size={16} />, badge: totalBinCount.toString() }
   ];
 
@@ -475,7 +464,7 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
       sidebarLinks={adminLinks}
       notificationCount={unreadCount}
       onNotificationClick={() => changePage("notifications", { fromPage: "dashboard" })}
-      onLogout={handleLogoutAttempt} // Hooked up to Confirmation Modal
+      onLogout={triggerLogout}
     >
       {/* 📊 METRICS SUMMARY PANEL */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-4">
@@ -731,74 +720,75 @@ const AdminDashboard = ({ changePage, triggerLogout }) => {
         )}
 
         {/* TAB: CULTURAL ARCHIVE */}
-        {tab === "archive" && (
-          <div className="animate-fadeIn">
-            {displayPosted.length === 0 ? (
-              <div className="bg-white/60 backdrop-blur-sm p-16 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center justify-center max-w-lg mx-auto">
-                <Archive className="w-10 h-10 text-gray-300 mb-2" />
-                <p className="text-gray-400 text-sm font-medium">No published items found within system archive clusters.</p>
+{tab === "archive" && (
+  <div className="animate-fadeIn">
+    {/* The sidebar count uses displayPosted.length, which is now filtered correctly */}
+    {displayPosted.length === 0 ? (
+      <div className="bg-white/60 backdrop-blur-sm p-16 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center justify-center max-w-lg mx-auto">
+        <Archive className="w-10 h-10 text-gray-300 mb-2" />
+        <p className="text-gray-400 text-sm font-medium">No published items found within system archive clusters.</p>
+      </div>
+    ) : (
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:!grid-cols-5 2xl:!grid-cols-5 gap-4">
+        {currentArchiveItems.map(item => (
+          <div key={item.id} className="bg-white rounded-2xl overflow-hidden flex flex-col shadow-xs border border-[#E09F26]/20 hover:border-[#E09F26]/40 transition-all duration-300 group">
+            <div className="h-32 overflow-hidden relative shrink-0 bg-gray-50 border-b border-gray-100">
+              {item.imageUrl && !brokenImages[item.id] ? (
+                <img 
+                  src={item.imageUrl} 
+                  onError={() => handleImageError(item.id)}
+                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
+                  alt={item.title}
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 text-[10px] font-medium">
+                  <BookOpen size={18} className="mb-0.5 opacity-20" />
+                  No Media Item
+                </div>
+              )}
+            </div>
+            
+            <div className="p-3 flex flex-col flex-1 justify-between bg-white">
+              <div>
+                <span className="inline-block px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[8px] font-black uppercase tracking-wider rounded border border-emerald-200 mb-1">Posted</span>
+                <h3 className="text-xs font-bold text-[#4A0C16] line-clamp-2 font-serif leading-tight">{item.title}</h3>
+                <p className="text-[10px] text-gray-400 mt-1.5 line-clamp-2 leading-tight">
+                  {item.description || item.meaning}
+                </p>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:!grid-cols-5 2xl:!grid-cols-5 gap-4">
-                {currentArchiveItems.map(item => (
-                  <div key={item.id} className="bg-white rounded-2xl overflow-hidden flex flex-col shadow-xs border border-[#E09F26]/20 hover:border-[#E09F26]/40 transition-all duration-300 group">
-                    <div className="h-32 overflow-hidden relative shrink-0 bg-gray-50 border-b border-gray-100">
-                      {item.imageUrl && !brokenImages[item.id] ? (
-                        <img 
-                          src={item.imageUrl} 
-                          onError={() => handleImageError(item.id)}
-                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
-                          alt={item.title}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 text-[10px] font-medium">
-                          <BookOpen size={18} className="mb-0.5 opacity-20" />
-                          No Media Item
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="p-3 flex flex-col flex-1 justify-between bg-white">
-                      <div>
-                        <span className="inline-block px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[8px] font-black uppercase tracking-wider rounded border border-emerald-200 mb-1">Posted</span>
-                        <h3 className="text-xs font-bold text-[#4A0C16] line-clamp-2 font-serif leading-tight">{item.title}</h3>
-                        <p className="text-[10px] text-gray-400 mt-1.5 line-clamp-2 leading-tight">
-                          {item.description || item.meaning}
-                        </p>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-2 mt-3 pt-2 border-t border-gray-50">
-                        <button 
-                          onClick={() => {
-                            const isProverb = (item.proverb || item.category === "Proverb");
-                            changePage(isProverb ? "proverbdetail" : "itemdetail", { 
-                              itemId: item.id, 
-                              fromPage: "dashboard", 
-                              role: "admin",
-                              itemType: isProverb ? "proverb" : "cultural"
-                            });
-                          }} 
-                          className="w-full bg-gray-100 hover:bg-gray-200 text-[#4A0C16] py-1.5 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1"
-                        >
-                          <BookOpen size={10} /> View
-                        </button>
-                        <button 
-                          disabled={isSubmitting}
-                          onClick={() => handleDeleteItem(item.id)} 
-                          className="w-full bg-red-50 hover:bg-red-600 hover:text-white text-red-600 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1 disabled:opacity-50"
-                        >
-                          {isSubmitting ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />} Delete
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              
+              <div className="grid grid-cols-2 gap-2 mt-3 pt-2 border-t border-gray-50">
+                <button 
+                  onClick={() => {
+                    const isProverb = (item.proverb || item.category === "Proverb");
+                    changePage(isProverb ? "proverbdetail" : "itemdetail", { 
+                      itemId: item.id, 
+                      fromPage: "dashboard", 
+                      role: "admin",
+                      itemType: isProverb ? "proverb" : "cultural"
+                    });
+                  }} 
+                  className="w-full bg-gray-100 hover:bg-gray-200 text-[#4A0C16] py-1.5 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1"
+                >
+                  <BookOpen size={10} /> View
+                </button>
+                <button 
+                  disabled={isSubmitting}
+                  onClick={() => handleDeleteItem(item.id)} 
+                  className="w-full bg-red-50 hover:bg-red-600 hover:text-white text-red-600 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1 disabled:opacity-50"
+                >
+                  {isSubmitting ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />} Delete
+                </button>
               </div>
-            )}
-            {renderPaginationSlider(archivePage, setArchivePage, displayPosted.length, itemsPerPage)}
+            </div>
           </div>
-        )}
-
+        ))}
+      </div>
+    )}
+    {/* Correct pagination count */}
+    {renderPaginationSlider(archivePage, setArchivePage, displayPosted.length, itemsPerPage)}
+  </div>
+)}
         {/* TAB: RECYCLE BIN */}
         {tab === "recycle_bin" && (
           <div className="animate-fadeIn">

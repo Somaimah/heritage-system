@@ -37,7 +37,7 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
 
   const categoriesList = ["All", "Wisdom", "Relationships & Community", "Honor & Respect", "General Life Lessons"];
 
-  // ================= MODAL STATE =================
+  // ================= MODAL STATE (Used for Feedbacks) =================
   const [confirmConfig, setConfirmConfig] = useState({
     isOpen: false,
     title: "",
@@ -48,20 +48,6 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
   });
 
   const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
-
-  const handleLogoutClick = () => {
-    setConfirmConfig({
-      isOpen: true,
-      title: "Confirm Logout",
-      message: "Are you sure you want to log out of your session?",
-      type: "warning",
-      confirmText: "Log Out",
-      onConfirm: () => {
-        closeConfirm();
-        triggerLogout();
-      }
-    });
-  };
 
   // ================= DATA STREAM CHANNELS =================
   useEffect(() => {
@@ -231,7 +217,7 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
       sidebarLinks={moderatorLinks} 
       notificationCount={unreadCount} 
       onNotificationClick={() => changePage("notifications", { fromPage: "dashboard" })} 
-      onLogout={handleLogoutClick}
+      onLogout={triggerLogout} // <--- Updated: triggerLogout passed directly
     >
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-8">

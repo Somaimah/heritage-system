@@ -2,16 +2,22 @@ import React, { useState, useEffect } from "react";
 import { db, auth } from "../../firebase/firebase";
 import { collection, addDoc, doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { useToast } from "../../components/ToastContext";
-import { ChevronLeft, Send, Quote, BookOpen, Info, Loader2, Layers, Volume2, Upload, CheckCircle2, Tag } from "lucide-react"; // Added Tag
+import { ChevronLeft, Send, Quote, BookOpen, Info, Loader2, Layers, Volume2, Upload, CheckCircle2, Tag, X } from "lucide-react"; // 🟢 ADDED: X icon
 
 // Import the Confirmation Modal
 import ConfirmationModal from "../../components/ConfirmationModal";
+
+// 🟢 ADDED: Import your custom hook
+import { useSessionStorage } from "../../hooks/useSessionStorage";
 
 const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
   const { showToast } = useToast();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState({
+  
+  // 🟢 CHANGED: Swapped standard useState for useSessionStorage. 
+  // It will perfectly handle this object structure.
+  const [formData, setFormData] = useSessionStorage("proverb_formData", {
     proverb: "",
     translation: "",
     meaning: "",
@@ -19,8 +25,7 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
     audioUrl: "", 
   });
   
-  // <-- ADDED: State for Metadata Tags
-  const [tagsInput, setTagsInput] = useState(""); 
+  const [tagsInput, setTagsInput] = useSessionStorage("proverb_tags", ""); 
 
   // --- CLOUDINARY UPLOAD LOGIC ---
   const handleAudioUpload = () => {
@@ -90,7 +95,7 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
         category: editItem.category || "General Life Lessons",
         audioUrl: editItem.audioUrl || "",
       });
-      // <-- ADDED: Pre-fill tags by joining the array back into a comma-separated string
+      // Pre-fill tags by joining the array back into a comma-separated string
       setTagsInput(editItem.tags ? editItem.tags.join(", ") : "");
     }
   }, [editItem]);
@@ -119,7 +124,7 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
       const uid = user?.uid || auth?.currentUser?.uid;
       if (!uid) throw new Error("User session not found.");
 
-      // <-- ADDED: Convert comma-separated string to an array of lowercase strings
+      // Convert comma-separated string to an array of lowercase strings
       const tagsArray = tagsInput
         .split(',')
         .map(tag => tag.trim().toLowerCase())
@@ -131,7 +136,7 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
         meaning: formData.meaning,
         category: formData.category,
         audioUrl: formData.audioUrl,
-        tags: tagsArray, // <-- ADDED: Pass the tags array to Firestore
+        tags: tagsArray, // Pass the tags array to Firestore
         status: "pending",
         updatedAt: serverTimestamp()
       };
@@ -149,8 +154,14 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
         showToast("Proverb uploaded successfully!", "success");
       }
       
+      // Reset state which inherently clears the local react view
       setFormData({ proverb: "", translation: "", meaning: "", category: "General Life Lessons", audioUrl: "" });
-      setTagsInput(""); // <-- ADDED: Clear tags input on success
+      setTagsInput(""); 
+      
+      // 🟢 ADDED: Explicitly purge session storage upon successful commit
+      sessionStorage.removeItem("proverb_formData");
+      sessionStorage.removeItem("proverb_tags");
+
       changePage("dashboard");
     } catch (err) {
       showToast(err.message, "error");
@@ -218,7 +229,6 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
                 />
               </div>
 
-              {/* <-- ADDED: Metadata Tags Field --> */}
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.15em] text-gray-400 ml-1">
                   <Tag size={14} className="text-[#E09F26]" /> Metadata Tags
@@ -232,7 +242,6 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
                 />
               </div>
 
-              {/* UPDATED AUDIO UPLOAD SECTION */}
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.15em] text-gray-400 ml-1">
                   <Volume2 size={14} className="text-[#E09F26]" /> Audio Pronunciation
@@ -250,14 +259,27 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
                       <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" size={18} />
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleAudioUpload}
-                    className="flex items-center gap-2 px-6 bg-[#E09F26] text-[#4A0C16] font-bold rounded-2xl hover:bg-[#cf9021] transition-all shadow-md active:scale-95"
-                  >
-                    <Upload size={18} />
-                    <span>Upload</span>
-                  </button>
+                  
+                  {/* 🟢 MODIFIED: Audio Upload with Remove Button */}
+                  {formData.audioUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, audioUrl: "" })}
+                      className="flex items-center gap-2 px-6 bg-red-100 text-red-600 font-bold rounded-2xl hover:bg-red-200 transition-all shadow-md active:scale-95 border border-red-200"
+                    >
+                      <X size={18} strokeWidth={2.5} />
+                      <span>Remove</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleAudioUpload}
+                      className="flex items-center gap-2 px-6 bg-[#E09F26] text-[#4A0C16] font-bold rounded-2xl hover:bg-[#cf9021] transition-all shadow-md active:scale-95"
+                    >
+                      <Upload size={18} />
+                      <span>Upload</span>
+                    </button>
+                  )}
                 </div>
                 {formData.audioUrl && (
                   <p className="text-[10px] text-green-600 font-bold flex items-center gap-1 ml-2">

@@ -11,6 +11,9 @@ import { useToast } from "../../components/ToastContext";
 import ConfirmationModal from "../../components/ConfirmationModal";
 import { detectMediaType } from "../../utils/mediaUtils";
 
+// 🟢 ADDED: Import your new custom hook
+import { useSessionStorage } from "../../hooks/useSessionStorage";
+
 import {
   collection,
   addDoc,
@@ -27,25 +30,25 @@ import {
   FileText, 
   Eye, 
   ImageOff,
-  CheckCircle2 // Added for upload success checkmarks
+  CheckCircle2,
+  X // 🟢 ADDED: X icon for the remove button
 } from "lucide-react";
 
 const UploadPage = ({ changePage, editItem }) => {
   const { showToast } = useToast();
 
   const [loading, setLoading] = useState(false);
-  const [category, setCategory] = useState("Artifact");
 
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [tagsInput, setTagsInput] = useState(""); // <-- ADDED: State for Metadata Tags
-
-  const [origin, setOrigin] = useState("");
-  const [author, setAuthor] = useState("");
-  const [recordType, setRecordType] = useState("Fun Fact");
-
-  const [imageUrl, setImageUrl] = useState("");
-  const [fileUrl, setFileUrl] = useState("");
+  // 🟢 CHANGED: Swapped standard useState for useSessionStorage
+  const [category, setCategory] = useSessionStorage("upload_category", "Artifact");
+  const [title, setTitle] = useSessionStorage("upload_title", "");
+  const [description, setDescription] = useSessionStorage("upload_desc", "");
+  const [tagsInput, setTagsInput] = useSessionStorage("upload_tags", ""); 
+  const [origin, setOrigin] = useSessionStorage("upload_origin", "");
+  const [author, setAuthor] = useSessionStorage("upload_author", "");
+  const [recordType, setRecordType] = useSessionStorage("upload_recordType", "Fun Fact");
+  const [imageUrl, setImageUrl] = useSessionStorage("upload_imageUrl", "");
+  const [fileUrl, setFileUrl] = useSessionStorage("upload_fileUrl", "");
 
   // --- CLOUDINARY UPLOAD LOGIC ---
   const handleCloudinaryUpload = (targetField) => {
@@ -59,7 +62,7 @@ const UploadPage = ({ changePage, editItem }) => {
         cloudName: "diy5guxxs",
         uploadPreset: "heritage_preset",
         sources: ["local", "url"],
-        resourceType: "auto", // Auto allows images, docs, pdfs, etc.
+        resourceType: "auto", 
         multiple: false,
         theme: "minimal",
         styles: {
@@ -82,7 +85,6 @@ const UploadPage = ({ changePage, editItem }) => {
       },
       (error, result) => {
         if (!error && result && result.event === "success") {
-          // Determine which field gets the URL based on the button clicked
           if (targetField === "image") {
             setImageUrl(result.info.secure_url);
           } else if (targetField === "file") {
@@ -115,10 +117,7 @@ const UploadPage = ({ changePage, editItem }) => {
       setCategory(editItem.category || "Artifact");
       setTitle(editItem.title || "");
       setDescription(editItem.description || "");
-      
-      // <-- ADDED: Pre-fill tags by joining the array back into a comma-separated string
       setTagsInput(editItem.tags ? editItem.tags.join(", ") : ""); 
-      
       setOrigin(editItem.origin || "");
       setAuthor(editItem.author || "");
       setRecordType(editItem.recordType || "Fun Fact");
@@ -159,7 +158,7 @@ const UploadPage = ({ changePage, editItem }) => {
           url: imageUrl,
           type: detectMediaType(imageUrl),
           isPrimary: true, 
-          source: "cloudinary" // Updated to reflect new source
+          source: "cloudinary" 
         });
       }
       
@@ -168,11 +167,10 @@ const UploadPage = ({ changePage, editItem }) => {
           url: fileUrl,
           type: detectMediaType(fileUrl), 
           isPrimary: false,
-          source: "cloudinary" // Updated to reflect new source
+          source: "cloudinary" 
         });
       }
 
-      // <-- ADDED: Convert comma-separated string to an array of lowercase strings
       const tagsArray = tagsInput
         .split(',')
         .map(tag => tag.trim().toLowerCase())
@@ -181,7 +179,7 @@ const UploadPage = ({ changePage, editItem }) => {
       const data = {
         title,
         description,
-        tags: tagsArray, // <-- ADDED: Pass the array to Firestore
+        tags: tagsArray, 
         category,
         media: mediaAssets, 
         imageUrl, 
@@ -230,6 +228,14 @@ const UploadPage = ({ changePage, editItem }) => {
 
         showToast("Upload successful!", "success");
       }
+
+      // 🟢 ADDED: Clear all form storage AFTER successful submission
+      const keysToRemove = [
+        "upload_category", "upload_title", "upload_desc", "upload_tags", 
+        "upload_origin", "upload_author", "upload_recordType", 
+        "upload_imageUrl", "upload_fileUrl"
+      ];
+      keysToRemove.forEach(key => sessionStorage.removeItem(key));
 
       changePage("dashboard");
     } catch (err) {
@@ -313,7 +319,6 @@ const UploadPage = ({ changePage, editItem }) => {
                 />
               </div>
 
-              {/* <-- ADDED: Metadata Tags Field --> */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Metadata Tags</label>
                 <input 
@@ -323,7 +328,6 @@ const UploadPage = ({ changePage, editItem }) => {
                   onChange={(e) => setTagsInput(e.target.value)} 
                 />
               </div>
-              {/* <-- END ADDED --> */}
 
               <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
                 {category === "Artifact" && (
@@ -365,8 +369,9 @@ const UploadPage = ({ changePage, editItem }) => {
                 )}
               </div>
 
-              {/* UPDATED: Media Links Canvas */}
               <div className="space-y-4 pt-2">
+                
+                {/* 🟢 MODIFIED: Image Upload with Remove Button */}
                 <div>
                   <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
                     <ImageIcon size={14} className="text-[#E09F26]" /> Image Resource
@@ -384,17 +389,30 @@ const UploadPage = ({ changePage, editItem }) => {
                         <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" size={18} />
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleCloudinaryUpload("image")}
-                      className="flex items-center gap-2 px-6 bg-[#E09F26] text-[#4A0C16] font-bold rounded-xl hover:bg-[#cf9021] transition-all shadow-md active:scale-95"
-                    >
-                      <Upload size={16} />
-                      <span>Upload</span>
-                    </button>
+                    
+                    {imageUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => setImageUrl("")}
+                        className="flex items-center gap-2 px-6 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 transition-all shadow-md active:scale-95 border border-red-200"
+                      >
+                        <X size={16} strokeWidth={2.5} />
+                        <span>Remove</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleCloudinaryUpload("image")}
+                        className="flex items-center gap-2 px-6 bg-[#E09F26] text-[#4A0C16] font-bold rounded-xl hover:bg-[#cf9021] transition-all shadow-md active:scale-95"
+                      >
+                        <Upload size={16} />
+                        <span>Upload</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
+                {/* 🟢 MODIFIED: PDF Upload with Remove Button */}
                 <div>
                   <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 mb-2 mt-4">
                     <FileText size={14} className="text-[#E09F26]" /> PDF Document (Optional)
@@ -412,16 +430,29 @@ const UploadPage = ({ changePage, editItem }) => {
                         <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" size={18} />
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleCloudinaryUpload("file")}
-                      className="flex items-center gap-2 px-6 bg-[#E09F26] text-[#4A0C16] font-bold rounded-xl hover:bg-[#cf9021] transition-all shadow-md active:scale-95"
-                    >
-                      <Upload size={16} />
-                      <span>Upload</span>
-                    </button>
+                    
+                    {fileUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => setFileUrl("")}
+                        className="flex items-center gap-2 px-6 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 transition-all shadow-md active:scale-95 border border-red-200"
+                      >
+                        <X size={16} strokeWidth={2.5} />
+                        <span>Remove</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleCloudinaryUpload("file")}
+                        className="flex items-center gap-2 px-6 bg-[#E09F26] text-[#4A0C16] font-bold rounded-xl hover:bg-[#cf9021] transition-all shadow-md active:scale-95"
+                      >
+                        <Upload size={16} />
+                        <span>Upload</span>
+                      </button>
+                    )}
                   </div>
                 </div>
+
               </div>
 
               <button 
