@@ -32,7 +32,39 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
   const { t } = useTranslation();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState("dashboard");
+  // ================= SESSION STORAGE INITIALIZATION =================
+  const [activeTab, setActiveTab] = useState(() => {
+    return sessionStorage.getItem("userActiveTab") || "dashboard";
+  });
+
+  const [search, setSearch] = useState(() => {
+    return sessionStorage.getItem("userSearch") || "";
+  });
+
+  const [category, setCategory] = useState(() => {
+    return sessionStorage.getItem("userCategory") || "all";
+  });
+
+  const [sortBy, setSortBy] = useState(() => {
+    return sessionStorage.getItem("userSortBy") || "newest";
+  });
+
+  // ================= PERSISTENCE EFFECTS =================
+  useEffect(() => {
+    sessionStorage.setItem("userActiveTab", activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    sessionStorage.setItem("userSearch", search);
+  }, [search]);
+
+  useEffect(() => {
+    sessionStorage.setItem("userCategory", category);
+  }, [category]);
+
+  useEffect(() => {
+    sessionStorage.setItem("userSortBy", sortBy);
+  }, [sortBy]);
 
   // Core Data States
   const [items, setItems] = useState([]);
@@ -43,12 +75,8 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
   // Single Consolidated Badge State Counter
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
-  // UI & Filter States
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("all");
-  const [sortBy, setSortBy] = useState("newest"); // NEW: Sorting State
+  // UI States
   const [currentPage, setCurrentPage] = useState(1);
-  
   const itemsPerPage = 25;
 
   // Interactivity States
@@ -178,7 +206,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     return () => unsub();
   }, []);
 
-  // UPDATE: Reset page when filters OR sort changes
   useEffect(() => {
     setCurrentPage(1);
   }, [search, category, sortBy, activeTab]);
@@ -187,30 +214,24 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
   const filteredItems = useMemo(() => {
     const lowerSearch = search.toLowerCase().trim();
     
-    // 1. Filter Logic
     let result = items.filter(item => {
-      // Improved: Checks title, description, and tags array
       const matchesSearch = 
         (item.title?.toLowerCase().includes(lowerSearch)) ||
         (item.description?.toLowerCase().includes(lowerSearch)) ||
         (Array.isArray(item.tags) && item.tags.some(tag => tag.toLowerCase().includes(lowerSearch)));
         
-      // Improved: Case-insensitive category match
       const matchesCategory = category === "all" || item.category?.toLowerCase() === category.toLowerCase();
-      
       return matchesSearch && matchesCategory;
     });
 
-    // 2. Sorting Logic
     result.sort((a, b) => {
       if (sortBy === "a-z") return (a.title || "").localeCompare(b.title || "");
       if (sortBy === "z-a") return (b.title || "").localeCompare(a.title || "");
       
-      // Safely extract timestamps from Firestore format
       const getTime = (t) => t?.seconds ? t.seconds : (t?.toMillis ? t.toMillis() : 0);
       
       if (sortBy === "oldest") return getTime(a.createdAt) - getTime(b.createdAt);
-      return getTime(b.createdAt) - getTime(a.createdAt); // Default: newest
+      return getTime(b.createdAt) - getTime(a.createdAt);
     });
 
     return result;
@@ -233,8 +254,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
   };
 
   // ================= MUTATIONS & ACTIONS =================
-  
-  // Toggle Bookmark for Cultural Items
   const toggleBookmark = async (item) => {
     try {
       const uid = user?.uid;
@@ -262,7 +281,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     }
   };
 
-  // Toggle Star for Proverbs
   const toggleStarProverb = async (item) => {
     try {
       const uid = user?.uid;
@@ -285,7 +303,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     }
   };
 
-  // Handle Feedback Submission
   const handleFeedbackSubmit = async (e) => {
     e.preventDefault();
     if (!feedbackMessage.trim()) {
@@ -294,7 +311,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
 
     setIsSubmittingFeedback(true);
     try {
-      // 1. Save the feedback to the database
       await addDoc(collection(db, "systemFeedbacks"), {
         userId: user?.uid || "anonymous",
         userName: computedName,
@@ -305,7 +321,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
         createdAt: serverTimestamp(),
       });
 
-      // 2. Send Notification to Moderators
       await setDoc(doc(collection(db, "notifications")), {
         targetRole: "moderator",
         role: "moderator", 
@@ -327,7 +342,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     }
   };
 
-  // Intercept Closing Feedback with Unsaved Changes
   const handleCloseFeedback = () => {
     if (feedbackMessage.trim()) {
       setConfirmModal({
@@ -346,7 +360,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     }
   };
 
-  // ================= SIDEBAR TABS LAYOUT =================
   const userSidebarLinks = [
     { value: "dashboard", label: t('sidebar.culturalItems', "Cultural Items"), icon: <LayoutDashboard size={16} /> },
     { value: "proverb", label: t('sidebar.proverb', "Proverb"), icon: <Quote size={16} /> },
@@ -412,8 +425,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
         {activeTab === "dashboard" && (
           <>
             <div className="flex flex-col md:flex-row gap-4 mb-2">
-              
-              {/* IMPROVED: Search Bar with Clear Button */}
               <div className="relative flex-1 group">
                 <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#E09F26] transition-colors" size={20} />
                 <input 
@@ -434,9 +445,7 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
                 )}
               </div>
               
-              {/* IMPROVED: Filters Container */}
               <div className="flex flex-col sm:flex-row gap-4 md:w-auto">
-                {/* Category Dropdown */}
                 <div className="relative w-full sm:w-48">
                   <select 
                     value={category} 
@@ -451,7 +460,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
                   </select>
                 </div>
 
-                {/* NEW: Sort By Dropdown */}
                 <div className="relative w-full sm:w-48">
                   <select 
                     value={sortBy} 

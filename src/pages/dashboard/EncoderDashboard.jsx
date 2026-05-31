@@ -12,11 +12,15 @@ import ConfirmationModal from "../../components/ConfirmationModal";
 const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   const [items, setItems] = useState([]);
   const [proverbItems, setProverbItems] = useState([]); 
-  const [tab, setTab] = useState("posted");
+  const [tab, setTab] = useState(() => {
+    return sessionStorage.getItem("encoder_active_tab") || "posted";
+  });
   const [showWord, setShowWord] = useState(false); 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const [revisionType, setRevisionType] = useState("cultural"); 
+  const [revisionType, setRevisionType] = useState(() => {
+    return sessionStorage.getItem("encoder_revision_type") || "cultural";
+  });
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [todayWordData, setTodayWordData] = useState(null);
 
@@ -72,6 +76,14 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     });
     return () => unsub();
   }, [user]);
+
+  useEffect(() => {
+    sessionStorage.setItem("encoder_active_tab", tab);
+  }, [tab]);
+  
+  useEffect(() => {
+    sessionStorage.setItem("encoder_revision_type", revisionType);
+  }, [revisionType]);
   
   // ================= DATA LOADERS =================
   useEffect(() => {

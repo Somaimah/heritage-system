@@ -21,7 +21,14 @@ import ConfirmationModal from "../../components/ConfirmationModal";
 const ModeratorDashboard = ({ changePage, triggerLogout }) => {
   const { showToast } = useToast(); 
 
-  const [tab, setTab] = useState("cultural_validation");
+  const [tab, setTab] = useState(() => {
+    return sessionStorage.getItem("moderatorTab") || "cultural_validation";
+  });
+
+  useEffect(() => {
+    sessionStorage.setItem("moderatorTab", tab);
+  }, [tab]);
+  
   const [culturalItems, setCulturalItems] = useState([]);
   const [proverbItems, setProverbItems] = useState([]); 
   const [systemFeedbackList, setSystemFeedbackList] = useState([]);
