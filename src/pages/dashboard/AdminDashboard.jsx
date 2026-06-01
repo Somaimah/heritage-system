@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useMemo } from "react";
 
 import { 
-  collection, query, where, or, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp 
+  collection, query, where, or, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, writeBatch, getDocs 
 } from "firebase/firestore";
+
 import { db, auth } from "../../firebase/firebase";
 
 import {
@@ -299,18 +300,34 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     setConfirmConfig({
       isOpen: true,
       title: "Relocate to Bin",
-      message: "Are you sure you want to move this item to the Recycle Bin? It will be removed from the public archive.",
+      message: "Are you sure you want to move this item to the Recycle Bin? It will be removed from the public archive and all user bookmarks.",
       type: "danger",
       confirmText: "Move to Bin",
       onConfirm: async () => {
         setIsSubmitting(true);
         try {
+          
           await updateDoc(doc(db, "culturalItems", itemId), { 
-            isDeleted: true, 
+            isDeleted: true,
+            status: "trashed", // THIS is what hides it from the other dashboards!
             deletedAt: serverTimestamp(),
             deletedBy: auth.currentUser?.uid
           });
-          showToast('Record relocated to system bin.', "success");
+
+
+          const bookmarksRef = collection(db, "bookmarks");
+          const q = query(bookmarksRef, where("itemId", "==", itemId));
+          const snapshot = await getDocs(q);
+
+          if (!snapshot.empty) {
+            const batch = writeBatch(db);
+            snapshot.docs.forEach((bookmarkDoc) => {
+              batch.delete(bookmarkDoc.ref);
+            });
+            await batch.commit();
+          }
+
+          showToast('Record relocated to system bin and bookmarks cleared.', "success");
         } catch (err) { 
           showToast(err.message, "error"); 
         } finally {
