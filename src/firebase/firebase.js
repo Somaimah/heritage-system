@@ -1,6 +1,6 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-// Import initializeFirestore and memoryLocalCache instead of getFirestore
+
 import { initializeFirestore, memoryLocalCache } from "firebase/firestore"; 
 import { getStorage } from "firebase/storage";
 
@@ -13,7 +13,7 @@ const firebaseConfig = {
   appId: "1:664821109179:web:4a2f20a04c4298ffe9349e"
 };
 
-const app = initializeApp(firebaseConfig);
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
 
