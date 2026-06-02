@@ -168,9 +168,9 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
   const { allPosted, allValidated, allReturned, statusData, totalUsersCount } = useMemo(() => {
     const posted = activeItems.filter(i => i.status === "posted");
     const validated = activeItems.filter(i => 
-      i.status !== "pending_moderation" && 
-      (i.status === "validated" || i.status === "pending" || i.status === "uploaded")
+      i.status === "validated" || i.status === "pending_admin"
     );
+
     const returned = activeItems.filter(i => i.status === "returned");
     return {
       allPosted: posted,
@@ -232,11 +232,10 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     });
     return {
       displayValidated: filtered.filter(i => 
-        i.status !== "pending_moderation" && 
-        (i.status === "validated" || i.status === "pending" || i.status === "uploaded")
+        i.status === "validated" || i.status === "pending_admin"
       ),
-      displayPosted: filtered.filter(i => i.status === "posted")
-    };
+  displayPosted: filtered.filter(i => i.status === "posted")
+};
   }, [activeItems, searchQuery, selectedCategory]);
 
   // NEW: Search for Users
@@ -349,7 +348,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
         setIsSubmitting(true);
         try {
           const collectionName = binFilter === "cultural" ? "culturalItems" : "proverb";
-          const resetStatus = binFilter === "cultural" ? "pending" : "pending_moderation";
+          const resetStatus = "pending_admin";
 
           await updateDoc(doc(db, collectionName, item.id), {
             isDeleted: false,
@@ -358,7 +357,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
           });
 
           await notifyRole({
-            role: "moderator",
+            role: "admin",
             message: `Admin restored ${binFilter === "cultural" ? "Cultural Item" : "Proverb"} "${item.title || 'Data'}". Review required.`,
             type: "item_restored",
             itemId: item.id,

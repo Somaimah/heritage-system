@@ -97,26 +97,30 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     return () => unsub();
   }, []);
 
-  // 🟢 CHANGED: Removed the 'where("createdBy", "==", uid)' filter 
-  // so this now fetches ALL Cultural Items from Firestore
+  
   useEffect(() => {
     const uid = user?.uid || auth.currentUser?.uid;
     if (!uid) return;
     const q = query(collection(db, "culturalItems")); 
     const unsub = onSnapshot(q, (snapshot) => {
-      setItems(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+      setItems(
+        snapshot.docs
+          .map((doc) => ({ id: doc.id, ...doc.data() }))
+          .filter(item => !item.isDeleted) 
+      );
     });
     return () => unsub();
   }, [user]);
 
-  // 🟢 CHANGED: Removed the local '.filter()' check
-  // so this now saves ALL Proverbs to state instead of just the user's
   useEffect(() => {
     const uid = user?.uid || auth.currentUser?.uid;
     if (!uid) return;
     const q = query(collection(db, "proverb"));
     const unsub = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const list = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter(item => !item.isDeleted); 
+      
       setProverbItems(list);
     });
     return () => unsub();
@@ -154,7 +158,7 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     }
 
     const totalPosted = [...items, ...proverbItems].filter(i => 
-      ["posted", "published", "validated"].includes((i.status || "").toLowerCase())
+      ["posted", "published"].includes((i.status || "").toLowerCase()) 
     ).length;
 
     return { uploadedToday, revisionItemName, daysPassedStr, totalPosted, returnedCount: returnedItems.length };
@@ -184,18 +188,18 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   }, [proverbItems, searchQuery]);
 
   // Item subsets for Tabs
-  const postedItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "posted" || i.status === "validated"), [filteredCulturalItems]);
-  const submissionItems = useMemo(() => filteredCulturalItems.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status)), [filteredCulturalItems]);
-  const returnedCulturalItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "returned"), [filteredCulturalItems]);
-  const returnedProverbItems = useMemo(() => filteredProverbItems.filter(i => i.status === "returned"), [filteredProverbItems]);
-  const postedProverbs = useMemo(() => filteredProverbItems.filter(i => ["posted", "validated", "approved", "published"].includes((i.status || "").toLowerCase())), [filteredProverbItems]);
+const postedItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "posted"), [filteredCulturalItems]); // 👈 REMOVED || i.status === "validated"
+const submissionItems = useMemo(() => filteredCulturalItems.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status)), [filteredCulturalItems]);
+const returnedCulturalItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "returned"), [filteredCulturalItems]);
+const returnedProverbItems = useMemo(() => filteredProverbItems.filter(i => i.status === "returned"), [filteredProverbItems]);
+const postedProverbs = useMemo(() => filteredProverbItems.filter(i => ["posted", "approved", "published"].includes((i.status || "").toLowerCase())), [filteredProverbItems]); 
 
   // ================= SIDEBAR LINKS (Static Counts) =================
-  const encoderLinks = useMemo(() => {
-    const totalPostedItemsCount = items.filter(i => i.status === "posted" || i.status === "validated").length;
-    const totalSubmissionsCount = items.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status)).length;
-    const totalPostedProverbsCount = proverbItems.filter(i => ["posted", "validated", "approved", "published"].includes((i.status || "").toLowerCase())).length;
-    const totalReturnedBaseCount = items.filter(i => i.status === "returned").length + proverbItems.filter(i => i.status === "returned").length;
+const encoderLinks = useMemo(() => {
+  const totalPostedItemsCount = items.filter(i => i.status === "posted").length; // 👈 REMOVED || i.status === "validated"
+  const totalSubmissionsCount = items.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status)).length;
+  const totalPostedProverbsCount = proverbItems.filter(i => ["posted", "approved", "published"].includes((i.status || "").toLowerCase())).length; 
+  const totalReturnedBaseCount = items.filter(i => i.status === "returned").length + proverbItems.filter(i => i.status === "returned").length;
 
     return [
       { value: "posted", label: "Cultural Archive", icon: <Archive size={16} />, badge: totalPostedItemsCount },
