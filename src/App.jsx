@@ -89,11 +89,17 @@ const App = () => {
       try {
         if (currentUser) {
           const isRegistering = localStorage.getItem("isRegistering");
-          if (pageRef.current === "register" || isRegistering === "true") {
+          
+          // 🟢 FIX 1: Only pause auth if they are ACTUALLY on the register page.
+          // If they aren't, clean up the stale "isRegistering" flag so it doesn't break the refresh.
+          if (pageRef.current === "register") {
             setLoading(false);
             return; 
+          } else if (isRegistering === "true") {
+            localStorage.removeItem("isRegistering");
           }
 
+          // Fetch the user's role from the database
           const userDoc = await getDoc(doc(db, "users", currentUser.uid));
           setUser(currentUser);
           const userRole = userDoc.exists() ? userDoc.data().role : "user";
@@ -101,9 +107,6 @@ const App = () => {
           console.log("DEBUG: Current User Email:", currentUser.email, "| Role from DB:", userRole);
           setRole(userRole);
 
-          // ✅ FIXED: We no longer manually read storage here! 
-          // The useSessionStorage hook already put us on the right page on load.
-          // We only push to dashboard if they are logged in but sitting on an auth page.
           if (pageRef.current === "landing" || pageRef.current === "login") {
             changePage("dashboard");
           }
@@ -118,9 +121,20 @@ const App = () => {
         }
       } catch (error) {
         console.error("Auth Listener Error:", error);
-        setUser(null);
-        setRole("guest");
-        changePage("landing");
+        
+        // 🟢 FIX 2: If Firestore fails on refresh (network blip or rule delay), 
+        // DO NOT log the user out. Fallback gracefully to keep their layout safe.
+        if (currentUser) {
+          setUser(currentUser);
+          setRole("user"); 
+          if (pageRef.current === "landing" || pageRef.current === "login") {
+            changePage("dashboard");
+          }
+        } else {
+          setUser(null);
+          setRole("guest");
+          changePage("landing");
+        }
       } finally {
         setLoading(false);
       }
