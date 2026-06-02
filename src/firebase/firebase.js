@@ -5,7 +5,7 @@ import { initializeFirestore, memoryLocalCache } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAdF9if7EWm696dyXplEG4fJM_hbfILybo",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: "heritage-system.firebaseapp.com",
   projectId: "heritage-system",
   storageBucket: "heritage-system.appspot.com",
