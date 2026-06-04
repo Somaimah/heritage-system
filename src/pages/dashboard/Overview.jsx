@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { db } from "../firebase/firebase";
+import { db } from "../../firebase/firebase";
 import { ArrowLeft, Search, Eye, Info, Lock } from "lucide-react";
 import okirPattern from "../assets/okir-pattern.png"; 
 

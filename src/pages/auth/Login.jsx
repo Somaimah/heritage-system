@@ -13,7 +13,7 @@ import { Loader2 } from "lucide-react";
 
 // Services & Context
 import { notifyRole } from "../services/notificationService"; 
-import { useToast } from "../components/ToastContext";
+import { useToast } from "../contexts/ToastContext";
 
 const Login = ({ goToRegister, goBack }) => {
   const { showToast } = useToast();

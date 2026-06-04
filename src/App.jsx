@@ -6,7 +6,7 @@ import { doc, getDoc } from "firebase/firestore";
 import Loader from "./components/Loader";
 import { useSessionStorage } from "./hooks/useSessionStorage";
 // 🔔 Notification System Context Integration
-import { ToastProvider } from "./components/ToastContext";
+import { ToastProvider } from "./contexts/ToastContext";
 
 // Auth
 import Login from "./auth/Login";
@@ -19,15 +19,15 @@ import ModeratorDashboard from "./pages/dashboard/ModeratorDashboard";
 import AdminDashboard from "./pages/dashboard/AdminDashboard";
 
 // Pages
-import LandingPage from "./pages/shared/LandingPage";
-import Overview from "./overview/Overview";
-import UploadPage from "./pages/shared/UploadPage";
-import ProverbUploadPage from "./pages/shared/ProverbUploadPage"; 
-import ItemDetailPage from "./pages/shared/ItemDetailPage";
-import NotificationsPage from "./pages/shared/NotificationsPage";
-import BookmarkPage from "./pages/shared/BookmarkPage";
-import SharedPublishedProverbs from "./pages/shared/SharedPublishedProverbs";
-import ProverbDetailPage from "./pages/shared/ProverbDetailPage";
+import LandingPage from "./pages/LandingPage";
+import Overview from "./pages/dashboard/Overview";
+import UploadPage from "./pages/items/ItemUploadPage";
+import ProverbUploadPage from "./pages/proverbs/ProverbUploadPage"; 
+import ItemDetailPage from "./pages/items/ItemDetailPage";
+import NotificationsPage from "./pages/NotificationsPage";
+import BookmarkPage from "./pages/BookmarkPage";
+import ProverbPosted from "./pages/proverbs/ProverbPosted";
+import ProverbDetailPage from "./pages/proverbs/ProverbDetailPage";
 
 // Lucide icon for the unified confirmation modal
 import { LogOut } from "lucide-react";
@@ -155,7 +155,7 @@ const App = () => {
       {page === "bookmarks" && <BookmarkPage changePage={changePage} />}
       
       {page === "proverb" && (
-        <SharedPublishedProverbs role={role} changePage={changePage} />
+        <ProverbPosted role={role} changePage={changePage} />
       )}
       
       {page === "landing" && <LandingPage changePage={changePage} />}

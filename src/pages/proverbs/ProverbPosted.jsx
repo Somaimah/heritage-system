@@ -3,7 +3,7 @@ import { db } from "../../firebase/firebase";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { Quote, Search, Inbox, ChevronLeft, ChevronRight, Filter, Star } from "lucide-react";
 
-const SharedPublishedProverbs = ({ changePage, role, starredProverbs = [], onToggleStar }) => {
+const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar }) => {
   const [proverbs, setProverbs] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All"); 
@@ -169,4 +169,4 @@ const SharedPublishedProverbs = ({ changePage, role, starredProverbs = [], onTog
   );
 };
 
-export default SharedPublishedProverbs;
+export default ProverbPosted;

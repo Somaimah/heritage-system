@@ -14,7 +14,7 @@ import {
   BookOpen, Clock, MessageSquare, ShieldCheck, Quote, Filter
 } from "lucide-react";
 
-import { useToast } from "../../components/ToastContext";
+import { useToast } from "../../contexts/ToastContext";
 import MasterDashboardShell from "../../components/MasterDashboardShell";
 import ConfirmationModal from "../../components/ConfirmationModal";
 

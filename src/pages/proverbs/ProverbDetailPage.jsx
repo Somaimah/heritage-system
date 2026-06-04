@@ -13,7 +13,7 @@ import {
   Quote, Calendar, Tag, ChevronLeft, AlertCircle, Trash2,
   CheckCircle, XCircle, MessageSquare, Edit3, Save, Loader2, RotateCcw, Volume2
 } from "lucide-react";
-import { useToast } from "../../components/ToastContext";
+import { useToast } from "../../contexts/ToastContext";
 
 // Import the Confirmation Modal
 import ConfirmationModal from "../../components/ConfirmationModal";

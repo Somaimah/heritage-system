@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { db } from "../../firebase/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { Sparkles, X } from "lucide-react";
-import { useToast } from "../../components/ToastContext";
+import { useToast } from "../../contexts/ToastContext";
 import okirPattern from "../../assets/okir-pattern.png";
 
 const WordOfTheDayConsole = ({ onClose, requestConfirm, existingData }) => {

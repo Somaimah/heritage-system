@@ -15,9 +15,9 @@ import {
 } from "lucide-react";
 
 import { notifyRole, sendNotification } from "../../services/notificationService";
-import { useToast } from "../../components/ToastContext";
+import { useToast } from "../../contexts/ToastContext";
 import MasterDashboardShell from "../../components/MasterDashboardShell";
-import SharedPublishedProverbs from "../../pages/shared/SharedPublishedProverbs";
+import ProverbPosted from "../proverbs/ProverbPosted";
 
 // Import the Universal Confirmation Modal
 import ConfirmationModal from "../../components/ConfirmationModal";
@@ -748,7 +748,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
 
         {/* TAB: POSTED PROVERBS COMPONENT */}
         {tab === "published_proverbs" && (
-          <SharedPublishedProverbs changePage={changePage} role="admin" />
+          <ProverbPosted changePage={changePage} role="admin" />
         )}
 
         {/* TAB: CULTURAL ARCHIVE */}

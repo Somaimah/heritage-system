@@ -4,7 +4,7 @@ import okirPattern from "../../assets/okir-pattern.png";
 import Loader from "../../components/Loader";
 
 // Context & Components
-import { useToast } from "../../components/ToastContext"; 
+import { useToast } from "../../contexts/ToastContext"; 
 import ConfirmationModal from "../../components/ConfirmationModal";
 
 import {

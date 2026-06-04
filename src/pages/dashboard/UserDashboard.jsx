@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useTranslation } from 'react-i18next';
-import { useToast } from "../../components/ToastContext";
+import { useToast } from "../../contexts/ToastContext";
 
 import { db, auth } from "../../firebase/firebase";
 
@@ -26,7 +26,7 @@ import MasterDashboardShell from "../../components/MasterDashboardShell";
 import okirPattern from "../../assets/okir-pattern.png";
 
 // Shared Universal Component for the Proverb Grid View
-import SharedPublishedProverbs from "../../pages/shared/SharedPublishedProverbs";
+import ProverbPosted from "../proverbs/ProverbPosted";
 
 const UserDashboard = ({ user, changePage, triggerLogout }) => {
   const { t } = useTranslation();
@@ -579,7 +579,7 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
         {/* WORKSPACE SHARED PROVERBS TAB SUB-VIEW PANEL */}
         {activeTab === "proverb" && (
           <div className="animate-fadeIn">
-            <SharedPublishedProverbs 
+            <ProverbPosted 
                 changePage={changePage} 
                 role="user" 
                 user={user}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { db, auth } from "../../firebase/firebase";
+import { db, auth } from "../firebase/firebase";
 import {
   collection,
   query,

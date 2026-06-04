@@ -5,7 +5,7 @@ import { notifyRole } from "../../services/notificationService";
 // IMPORT THE OKIR PATTERN DIRECTLY TO RESOLVE THE BUNDLER PATH
 import okirPattern from "../../assets/okir-pattern.png";
 import Loader from "../../components/Loader";
-import { useToast } from "../../components/ToastContext";
+import { useToast } from "../../contexts/ToastContext";
 
 // Import the Confirmation Modal
 import ConfirmationModal from "../../components/ConfirmationModal";

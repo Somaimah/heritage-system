@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Search, BookOpen, History, Shield, ArrowRight } from "lucide-react";
-import Navbar from "../../components/Navbar"; 
+import Navbar from "../components/Navbar"; 
 
 // FIREBASE IMPORTS
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { db } from "../../firebase/firebase"; 
+import { db } from "../firebase/firebase"; 
 
 // Hero Assets
 import mchcBuilding from "../../assets/mchc-building.jpg";
