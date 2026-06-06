@@ -3,8 +3,7 @@ import { auth } from "../firebase/firebase";
 import { BookOpen } from "lucide-react"; 
 
 const Navbar = ({ changePage }) => {
-  // We keep currentUser in case you want to show 'Logout' later, 
-  // but we removed all translation hooks.
+  // Check if a user is currently logged in
   const currentUser = auth.currentUser;
 
   return (
@@ -29,21 +28,30 @@ const Navbar = ({ changePage }) => {
       {/* RIGHT SIDE: Navigation & Action Buttons */}
       <div className="flex items-center gap-4 z-10 bg-transparent px-5 py-2.5 rounded-xl h-auto">
         
-        {/* Login Button */}
-        <button
-          onClick={() => changePage("login")}
-          className="px-6 py-2 bg-white text-[#4A0C16] font-bold rounded-lg hover:bg-gray-100 hover:shadow-md transition-all active:scale-95 text-sm uppercase tracking-wide"
-        >
-          Login
-        </button>
-        
-        {/* Register Button */}
-        <button
-          onClick={() => changePage("register")}
-          className="px-6 py-2 bg-[#E09F26] text-white font-bold rounded-lg hover:bg-[#C88A21] hover:shadow-md transition-all active:scale-95 text-sm uppercase tracking-wide"
-        >
-          Register
-        </button>
+        {/* If user is logged in, show Dashboard button. Otherwise, show Login/Register */}
+        {currentUser ? (
+          <button
+            onClick={() => changePage("dashboard")}
+            className="px-6 py-2 bg-[#E09F26] text-white font-bold rounded-lg hover:bg-[#C88A21] hover:shadow-md transition-all active:scale-95 text-sm uppercase tracking-wide"
+          >
+            Go to Dashboard
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => changePage("login")}
+              className="px-6 py-2 bg-white text-[#4A0C16] font-bold rounded-lg hover:bg-gray-100 hover:shadow-md transition-all active:scale-95 text-sm uppercase tracking-wide"
+            >
+              Login
+            </button>
+            <button
+              onClick={() => changePage("register")}
+              className="px-6 py-2 bg-[#E09F26] text-white font-bold rounded-lg hover:bg-[#C88A21] hover:shadow-md transition-all active:scale-95 text-sm uppercase tracking-wide"
+            >
+              Register
+            </button>
+          </>
+        )}
 
       </div>
     </nav>

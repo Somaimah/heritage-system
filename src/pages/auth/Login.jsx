@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { auth, db } from "../firebase/firebase";
+import { auth, db } from "../../firebase/firebase";
 import { 
   signInWithEmailAndPassword, 
   onAuthStateChanged, 
@@ -9,11 +9,11 @@ import {
   sendPasswordResetEmail
 } from "firebase/auth";
 import { doc, setDoc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 
 // Services & Context
-import { notifyRole } from "../services/notificationService"; 
-import { useToast } from "../contexts/ToastContext";
+import { notifyRole } from "../../services/notificationService"; 
+import { useToast } from "../../contexts/ToastContext";
 
 const Login = ({ goToRegister, goBack }) => {
   const { showToast } = useToast();
@@ -21,6 +21,8 @@ const Login = ({ goToRegister, goBack }) => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -50,11 +52,20 @@ const Login = ({ goToRegister, goBack }) => {
         return;
       }
 
-      // SYNC WITH ADMIN REGISTRY
+      // SYNC WITH ADMIN REGISTRY & SELF-HEAL GHOST ACCOUNTS
       const userDocRef = doc(db, "users", user.uid);
       const userDocSnap = await getDoc(userDocRef);
       
-      if (userDocSnap.exists()) {
+      if (!userDocSnap.exists()) {
+        // 🚑 SELF-HEAL: Create the missing Firestore doc for existing Auth users
+        await setDoc(userDocRef, {
+          email: user.email,
+          role: "user",
+          createdAt: serverTimestamp(),
+          verifiedNotificationSent: true 
+        });
+      } else {
+        // Standard logic for existing users...
         const userData = userDocSnap.data();
         
         // Notify admin only on the very first verified login
@@ -188,14 +199,25 @@ const Login = ({ goToRegister, goBack }) => {
               <label className="block mb-2 text-xs font-bold uppercase tracking-wider text-gray-500">
                 Password
               </label>
-              <input
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full p-3.5 rounded-xl border border-gray-200 focus:outline-none focus:border-[#E09F26] focus:ring-2 focus:ring-[#E09F26]/10 text-gray-800 transition bg-gray-50/50 text-sm"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="w-full p-3.5 pr-12 rounded-xl border border-gray-200 focus:outline-none focus:border-[#E09F26] focus:ring-2 focus:ring-[#E09F26]/10 text-gray-800 transition bg-gray-50/50 text-sm"
+                />
+                
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#E09F26] transition-colors focus:outline-none"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
               
               <div className="flex justify-end mt-2.5">
                 <button 

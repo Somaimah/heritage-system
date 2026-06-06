@@ -9,15 +9,15 @@ import {
   setDoc,
   deleteDoc,
   collection,
-  query,
-  where,
   onSnapshot,
   serverTimestamp,
-  addDoc
+  addDoc,
+  query,
+  where // ✅ Added 'where' explicitly here
 } from "firebase/firestore";
 
 import {
-  BookOpen, Bell, Bookmark, Search, Star,
+  BookOpen, Bell, Bookmark, Search,
   ChevronLeft, ChevronRight, Sparkles, MessageSquare, 
   HelpCircle, AlertTriangle, Lightbulb, X, Loader2, LayoutDashboard, Quote
 } from "lucide-react";
@@ -27,6 +27,7 @@ import okirPattern from "../../assets/okir-pattern.png";
 
 // Shared Universal Component for the Proverb Grid View
 import ProverbPosted from "../proverbs/ProverbPosted";
+import { useSystemData } from "../../hooks/useSystemData"; // Adjusted for unified data layer
 
 const UserDashboard = ({ user, changePage, triggerLogout }) => {
   const { t } = useTranslation();
@@ -66,14 +67,46 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     sessionStorage.setItem("userSortBy", sortBy);
   }, [sortBy]);
 
-  // Core Data States
-  const [items, setItems] = useState([]);
+  // ================= SEARCH ANALYTICS TRACKER (DEBOUNCED) =================
+  useEffect(() => {
+    const cleanSearch = search.trim().toLowerCase();
+    
+    // Only track if the word is at least 3 letters long
+    if (!cleanSearch || cleanSearch.length < 3) return;
+
+    // Debounce: Wait 1.5 seconds after typing stops
+    const debounceTimer = setTimeout(async () => {
+      try {
+        await addDoc(collection(db, "search_analytics"), {
+          query: cleanSearch,
+          userId: user?.uid || "anonymous",
+          categoryScope: category || "all",
+          timestamp: serverTimestamp()
+        });
+        console.log("Search tracked successfully!"); // Optional: just so you can see it work in your console
+      } catch (error) {
+        console.error("Search Tracking Error:", error);
+      }
+    }, 1500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [search, category, user?.uid]);
+
+  // ================= SYSTEM DATA INTEGRATION =================
+  const { 
+    culturalItems: rawCulturalItems = [], 
+    unreadCount: unreadNotifications 
+  } = useSystemData("user");
+
+  // Filter local state dependencies cleanly using useMemo to mirror native status targets
+  const items = useMemo(() => {
+    return rawCulturalItems.filter(item => item.status === "posted" && !item.isDeleted);
+  }, [rawCulturalItems]);
+
+  // Core Data States (Kept local as they map exclusively to this user configuration)
   const [bookmarks, setBookmarks] = useState([]);
   const [starredProverbs, setStarredProverbs] = useState([]); 
   const [word, setWord] = useState(null);
-  
-  // Single Consolidated Badge State Counter
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   // UI States
   const [currentPage, setCurrentPage] = useState(1);
@@ -133,70 +166,35 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     return targetEmail ? targetEmail.split("@")[0] : "User";
   }, [user, databaseName]);
 
-  // ================= DATA FETCHING =================
+  // ================= LOCAL AD-HOC DATA FETCHING =================
 
-  // 1. Notification Listener
+  // 1. Bookmarks Listener (For Cultural Items mapped to this specific user)
   useEffect(() => {
     if (!user?.uid) return;
-
-    const clientUid = String(user.uid).trim();
-    const q = query(collection(db, "notifications"));
-
-    const unsub = onSnapshot(q, (snapshot) => {
-      let count = 0;
-      snapshot.docs.forEach((doc) => {
-        const data = doc.data();
-        const dbUserId = data.userId ? String(data.userId).trim() : null;
-        if (dbUserId === clientUid) {
-          if (data.read !== true && data.read !== "true") {
-            count++;
-          }
-        } 
-        else if (data.targetRole && String(data.targetRole).toLowerCase() === "user") {
-          const readHistory = Array.isArray(data.isReadBy) ? data.isReadBy : [];
-          if (!readHistory.includes(clientUid)) {
-            count++;
-          }
-        }
-      });
-      setUnreadNotifications(count);
-    }, (error) => {
-      console.error("Firebase Snapshot Error:", error);
-    });
-
-    return () => unsub();
-  }, [user?.uid]);
-
-  // 2. Cultural Items Listener
-  useEffect(() => {
-    const q = query(collection(db, "culturalItems"), where("status", "==", "posted"));
-    const unsub = onSnapshot(q, (snap) => {
-      setItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    return () => unsub();
-  }, []);
-
-  // 3. Bookmarks Listener (For Cultural Items)
-  useEffect(() => {
-    if (!user?.uid) return;
-    const q = query(collection(db, "bookmarks"), where("userId", "==", user.uid));
-    const unsub = onSnapshot(q, (snap) => {
+    
+    const bookmarksQuery = query(collection(db, "bookmarks"), where("userId", "==", user.uid));
+    
+    const unsub = onSnapshot(bookmarksQuery, (snap) => {
       setBookmarks(snap.docs.map(doc => doc.data().itemId));
-    });
+    }, (err) => console.error("Bookmarks sync error:", err));
+    
     return () => unsub();
   }, [user?.uid]);
 
-  // 4. Starred Proverbs Listener
+  // 2. Starred Proverbs Listener
   useEffect(() => {
     if (!user?.uid) return;
-    const q = query(collection(db, "starredProverbs"), where("userId", "==", user.uid));
-    const unsub = onSnapshot(q, (snap) => {
+    
+    const starredQuery = query(collection(db, "starredProverbs"), where("userId", "==", user.uid));
+    
+    const unsub = onSnapshot(starredQuery, (snap) => {
       setStarredProverbs(snap.docs.map(doc => doc.data().itemId));
-    });
+    }, (err) => console.error("Starred proverbs sync error:", err));
+    
     return () => unsub();
   }, [user?.uid]);
 
-  // 5. Word of the Day Listener
+  // 3. Word of the Day Listener
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "wordOfDay"), (snap) => {
       if (!snap.empty) {
@@ -371,6 +369,7 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     <MasterDashboardShell
       userRole="User"
       userName={computedName}
+      userPhoto={auth.currentUser?.photoURL}
       activeTab={activeTab}
       sidebarLinks={userSidebarLinks}
       notificationCount={unreadNotifications}

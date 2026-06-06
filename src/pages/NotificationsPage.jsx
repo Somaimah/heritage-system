@@ -10,7 +10,7 @@ import {
   getDoc
 } from "firebase/firestore";
 import { ArrowLeft, Bell, Clock, Loader2, BellRing } from "lucide-react";
-import okirPattern from "../../assets/okir-pattern.png";
+import okirPattern from "../assets/okir-pattern.png";
 
 const NotificationsPage = ({ changePage, params }) => {
   const [directNotifs, setDirectNotifs] = useState([]);

@@ -1,24 +1,25 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Search, BookOpen, History, Shield, ArrowRight } from "lucide-react";
 import Navbar from "../components/Navbar"; 
-
-// FIREBASE IMPORTS
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { db } from "../firebase/firebase"; 
+import { useSystemData } from "../hooks/useSystemData"; // ✅ Integrated hook
 
 // Hero Assets
-import mchcBuilding from "../../assets/mchc-building.jpg";
-import mchcBuilding2 from "../../assets/mchc-building-2.jpg";
-import mchcBuilding3 from "../../assets/mchc-building-3.jpg";
-import okirPattern from "../../assets/okir-pattern.png";
+import mchcBuilding from "../assets/mchc-building.jpg";
+import mchcBuilding2 from "../assets/mchc-building-2.jpg";
+import mchcBuilding3 from "../assets/mchc-building-3.jpg";
+import okirPattern from "../assets/okir-pattern.png";
 
 const LandingPage = ({ changePage }) => {
+  const { culturalItems } = useSystemData("guest"); // Using hook
+
   // 1. Hero Slideshow State
   const heroImages = [mchcBuilding, mchcBuilding2, mchcBuilding3];
   const [heroIndex, setHeroIndex] = useState(0);
 
-  // 2. Featured Items State
-  const [featuredItems, setFeaturedItems] = useState([]);
+  // 2. Derive Featured Items from Global State
+  const featuredItems = useMemo(() => {
+    return culturalItems.filter(item => item.isFeatured && item.status === "posted");
+  }, [culturalItems]);
 
   // Hero Image Timer
   useEffect(() => {

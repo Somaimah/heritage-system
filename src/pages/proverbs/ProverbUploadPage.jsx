@@ -2,21 +2,40 @@ import React, { useState, useEffect } from "react";
 import { db, auth } from "../../firebase/firebase";
 import { collection, addDoc, doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { useToast } from "../../contexts/ToastContext";
-import { ChevronLeft, Send, Quote, BookOpen, Info, Loader2, Layers, Volume2, Upload, CheckCircle2, Tag, X } from "lucide-react"; // 🟢 ADDED: X icon
+import { 
+  ArrowLeft, 
+  Send, 
+  Quote, 
+  BookOpen, 
+  Info, 
+  Layers, 
+  Volume2, 
+  Upload, 
+  CheckCircle2, 
+  Tag, 
+  X,
+  Eye,
+  VolumeX
+} from "lucide-react"; 
+
+// IMPORT THE OKIR PATTERN DIRECTLY TO MATCH THE UTMOST SYSTEM CORE DESIGN
+import okirPattern from "../../assets/okir-pattern.png";
+import Loader from "../../components/Loader";
 
 // Import the Confirmation Modal
 import ConfirmationModal from "../../components/ConfirmationModal";
 
-// 🟢 ADDED: Import your custom hook
+// Import your custom hook
 import { useSessionStorage } from "../../hooks/useSessionStorage";
+
+// Import your shared utilities
+import { processTags, CLOUDINARY_WIDGET_STYLE } from "../../utils/formUtils";
 
 const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
   const { showToast } = useToast();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // 🟢 CHANGED: Swapped standard useState for useSessionStorage. 
-  // It will perfectly handle this object structure.
   const [formData, setFormData] = useSessionStorage("proverb_formData", {
     proverb: "",
     translation: "",
@@ -29,7 +48,6 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
 
   // --- CLOUDINARY UPLOAD LOGIC ---
   const handleAudioUpload = () => {
-    // Check if the script is loaded
     if (!window.cloudinary) {
       showToast("Upload widget not ready. Please refresh.", "error");
       return;
@@ -37,30 +55,14 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
 
     const widget = window.cloudinary.createUploadWidget(
       {
-        cloudName: "diy5guxxs", // Your Cloud Name
-        uploadPreset: "heritage_preset", // Your Unsigned Preset
+        cloudName: "diy5guxxs", 
+        uploadPreset: "heritage_preset", 
         sources: ["local", "url"],
-        resourceType: "auto", // Important: Allows audio files
+        resourceType: "auto", 
         clientAllowedFormats: ["mp3", "wav", "m4a", "ogg"],
         multiple: false,
         theme: "minimal",
-        styles: {
-          palette: {
-            window: "#FFFFFF",
-            windowBorder: "#4A0C16",
-            tabIcon: "#E09F26",
-            menuIcons: "#4A0C16",
-            textDark: "#000000",
-            textLight: "#FFFFFF",
-            link: "#E09F26",
-            action: "#4A0C16",
-            inactiveTabIcon: "#4A0C16",
-            error: "#F44235",
-            inProgress: "#E09F26",
-            complete: "#20B832",
-            sourceBg: "#F4F1EA"
-          }
-        }
+        styles: CLOUDINARY_WIDGET_STYLE 
       },
       (error, result) => {
         if (!error && result && result.event === "success") {
@@ -95,7 +97,6 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
         category: editItem.category || "General Life Lessons",
         audioUrl: editItem.audioUrl || "",
       });
-      // Pre-fill tags by joining the array back into a comma-separated string
       setTagsInput(editItem.tags ? editItem.tags.join(", ") : "");
     }
   }, [editItem]);
@@ -124,11 +125,7 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
       const uid = user?.uid || auth?.currentUser?.uid;
       if (!uid) throw new Error("User session not found.");
 
-      // Convert comma-separated string to an array of lowercase strings
-      const tagsArray = tagsInput
-        .split(',')
-        .map(tag => tag.trim().toLowerCase())
-        .filter(tag => tag.length > 0);
+      const tagsArray = processTags(tagsInput);
 
       const proverbData = {
         proverb: formData.proverb,
@@ -136,7 +133,7 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
         meaning: formData.meaning,
         category: formData.category,
         audioUrl: formData.audioUrl,
-        tags: tagsArray, // Pass the tags array to Firestore
+        tags: tagsArray, 
         status: "pending",
         updatedAt: serverTimestamp()
       };
@@ -154,11 +151,9 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
         showToast("Proverb uploaded successfully!", "success");
       }
       
-      // Reset state which inherently clears the local react view
       setFormData({ proverb: "", translation: "", meaning: "", category: "General Life Lessons", audioUrl: "" });
       setTagsInput(""); 
       
-      // 🟢 ADDED: Explicitly purge session storage upon successful commit
       sessionStorage.removeItem("proverb_formData");
       sessionStorage.removeItem("proverb_tags");
 
@@ -171,52 +166,64 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
   };
 
   const pageTitle = editItem ? "Revise Returned Proverb" : "Upload New Proverb";
-  const pageDescription = editItem 
-    ? "Make the necessary corrections and resubmit." 
-    : "Preserve traditional wisdom by adding a Maranao proverb and its audio pronunciation.";
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-8 font-sans">
-      <div className="max-w-3xl mx-auto">
-        
-        <button onClick={() => changePage("dashboard")} className="flex items-center gap-2 text-gray-500 hover:text-[#4A0C16] mb-6 group w-fit">
-          <div className="bg-white p-2 rounded-xl border border-gray-200 group-hover:border-[#E09F26]/30 shadow-sm transition-all">
-            <ChevronLeft size={16} />
-          </div>
-          <span className="font-bold text-sm uppercase tracking-wider">Back to Dashboard</span>
+    <div className="min-h-screen bg-[#FEF9C3] flex flex-col font-sans antialiased selection:bg-[#4A0C16]/10">
+      
+      {/* Okir Pattern Strip Accent */}
+      <div 
+        className="w-full h-8 bg-[#E09F26] border-b border-[#4A0C16]/30 shadow-sm"
+        style={{ 
+          backgroundImage: `url(${okirPattern})`,
+          backgroundRepeat: 'repeat-x',
+          backgroundSize: 'auto 100%' 
+        }} 
+      />
+
+      {/* Styled Header Component */}
+      <header className="bg-[#4A0C16] text-white px-8 py-6 flex items-center justify-between shadow-md border-b border-[#E09F26]/20">
+        <div>
+          <h1 className="text-2xl font-bold font-serif tracking-wide flex items-center gap-3">
+            <Quote size={24} className="text-[#E09F26]" />
+            {pageTitle}
+          </h1>
+          <p className="text-[10px] text-[#E09F26] uppercase tracking-widest font-semibold mt-0.5">MSU Meranaw CHC Content Management Workspace</p>
+        </div>
+        <button
+          onClick={() => changePage("dashboard")}
+          className="flex items-center gap-2 hover:text-[#E09F26] transition-colors font-bold text-xs uppercase tracking-wider bg-white/5 hover:bg-white/10 px-4 py-2.5 rounded-xl border border-white/10"
+        >
+          <ArrowLeft size={14} /> Return to List
         </button>
+      </header>
 
-        <div className="bg-white rounded-[40px] shadow-2xl border border-[#E09F26]/20 overflow-hidden">
-          <div className="bg-[#4A0C16] p-10 text-white relative overflow-hidden">
-            <div className="relative z-10">
-              <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#E09F26]/20 border border-[#E09F26]/30 rounded-lg mb-4">
-                <Quote size={14} className="text-[#E09F26]" />
-                <span className="text-[#E09F26] text-[10px] font-black uppercase tracking-widest">Pananaroon</span>
-              </div>
-              <h1 className="text-3xl font-serif font-bold text-white mb-2">{pageTitle}</h1>
-              <p className="text-gray-300 text-sm">{pageDescription}</p>
-            </div>
-            <Quote size={140} className="absolute -right-6 -bottom-10 text-white/5 rotate-12" />
-          </div>
-
-          <form onSubmit={triggerSubmit} className="p-6 sm:p-10 space-y-8">
-            <div className="space-y-6">
+      {/* Main Two-Column Content Frame */}
+      <div className="flex-1 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+        
+        {/* Left Column: Input Panel Form */}
+        <div className="lg:col-span-7 xl:col-span-8">
+          <div className="bg-white p-6 md:p-8 rounded-3xl shadow-[0_10px_40px_-6px_rgba(74,12,22,0.06)] border border-[#E09F26]/10">
+            <h2 className="text-xl font-bold text-[#4A0C16] font-serif mb-6 border-b pb-4">
+              Proverb Specifications Hub
+            </h2>
+            
+            <form onSubmit={triggerSubmit} className="space-y-6">
               
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.15em] text-gray-400 ml-1">
-                  <BookOpen size={14} className="text-[#E09F26]" /> Maranao Proverb
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
+                  Maranao Proverb (Pananaroon)
                 </label>
                 <textarea
                   required
                   value={formData.proverb}
                   onChange={(e) => setFormData({...formData, proverb: e.target.value})}
-                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-3xl p-5 text-lg font-serif text-[#4A0C16] focus:border-[#E09F26] focus:bg-white outline-none transition-all resize-none h-32"
+                  className="w-full border border-gray-200 p-3.5 rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all min-h-[100px] resize-y text-base font-serif text-gray-800 leading-relaxed"
                   placeholder="Enter the proverb in Maranao..."
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.15em] text-gray-400 ml-1">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
                   English Translation
                 </label>
                 <input
@@ -224,78 +231,32 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
                   required
                   value={formData.translation}
                   onChange={(e) => setFormData({...formData, translation: e.target.value})}
-                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-[#4A0C16] focus:border-[#E09F26] focus:bg-white outline-none transition-all"
+                  className="w-full border border-gray-200 p-3.5 rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm font-medium text-gray-800"
                   placeholder="Literal or closest English translation..."
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.15em] text-gray-400 ml-1">
-                  <Tag size={14} className="text-[#E09F26]" /> Metadata Tags
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
+                  Metadata Tags
                 </label>
                 <input
                   type="text"
                   value={tagsInput}
                   onChange={(e) => setTagsInput(e.target.value)}
-                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-[#4A0C16] focus:border-[#E09F26] focus:bg-white outline-none transition-all"
+                  className="w-full border border-gray-200 p-3.5 rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm font-medium text-gray-800"
                   placeholder="e.g., respect, family, traditional (comma separated)"
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.15em] text-gray-400 ml-1">
-                  <Volume2 size={14} className="text-[#E09F26]" /> Audio Pronunciation
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type="url"
-                      readOnly
-                      value={formData.audioUrl}
-                      className="w-full bg-gray-100 border-2 border-gray-100 rounded-2xl p-4 pr-10 text-xs text-gray-500 italic outline-none cursor-not-allowed"
-                      placeholder="Click upload to add audio..."
-                    />
-                    {formData.audioUrl && (
-                      <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" size={18} />
-                    )}
-                  </div>
-                  
-                  {/* 🟢 MODIFIED: Audio Upload with Remove Button */}
-                  {formData.audioUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, audioUrl: "" })}
-                      className="flex items-center gap-2 px-6 bg-red-100 text-red-600 font-bold rounded-2xl hover:bg-red-200 transition-all shadow-md active:scale-95 border border-red-200"
-                    >
-                      <X size={18} strokeWidth={2.5} />
-                      <span>Remove</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleAudioUpload}
-                      className="flex items-center gap-2 px-6 bg-[#E09F26] text-[#4A0C16] font-bold rounded-2xl hover:bg-[#cf9021] transition-all shadow-md active:scale-95"
-                    >
-                      <Upload size={18} />
-                      <span>Upload</span>
-                    </button>
-                  )}
-                </div>
-                {formData.audioUrl && (
-                  <p className="text-[10px] text-green-600 font-bold flex items-center gap-1 ml-2">
-                    <CheckCircle2 size={10} /> File ready for submission
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.15em] text-gray-400 ml-1">
-                  <Layers size={14} className="text-[#E09F26]" /> Classification Category
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
+                  Classification Category
                 </label>
                 <select
                   value={formData.category}
                   onChange={(e) => setFormData({...formData, category: e.target.value})}
-                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-[#4A0C16] font-medium focus:border-[#E09F26] appearance-none cursor-pointer"
+                  className="w-full border border-gray-200 bg-gray-50/60 p-3.5 rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] focus:bg-white outline-none transition-all cursor-pointer font-semibold text-sm text-gray-800"
                 >
                   <option value="Wisdom">Wisdom</option>
                   <option value="Relationships & Community">Relationships & Community</option>
@@ -304,38 +265,143 @@ const ProverbUploadPage = ({ changePage, user, editItem = null }) => {
                 </select>
               </div>
 
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.15em] text-gray-400 ml-1">
-                  <Info size={14} className="text-[#E09F26]" /> Meaning & Context
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
+                  Meaning & Context Documentation
                 </label>
                 <textarea
                   required
                   value={formData.meaning}
                   onChange={(e) => setFormData({...formData, meaning: e.target.value})}
-                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-3xl p-5 text-sm text-[#4A0C16] focus:border-[#E09F26] focus:bg-white outline-none transition-all h-40 resize-none"
-                  placeholder="Explain the wisdom and cultural context..."
+                  className="w-full border border-gray-200 p-3.5 rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all min-h-[120px] resize-y text-sm leading-relaxed text-gray-600"
+                  placeholder="Explain the wisdom and cultural context thoroughly..."
                 />
               </div>
-            </div>
 
-            <div className="pt-4 mt-8 border-t border-gray-100">
-              <button
-                type="submit"
+              {/* Audio Uploader Segment */}
+              <div className="pt-2">
+                <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
+                  <Volume2 size={14} className="text-[#E09F26]" /> Audio Pronunciation Archive
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="url"
+                      readOnly
+                      value={formData.audioUrl}
+                      className="w-full bg-gray-100 border border-gray-200 rounded-xl p-3.5 pr-10 text-sm text-gray-500 italic outline-none cursor-not-allowed"
+                      placeholder="Click upload to link an audio asset..."
+                    />
+                    {formData.audioUrl && (
+                      <CheckCircle2 className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" size={18} />
+                    )}
+                  </div>
+                  
+                  {formData.audioUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, audioUrl: "" })}
+                      className="flex items-center gap-2 px-6 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 transition-all shadow-md active:scale-95 border border-red-200"
+                    >
+                      <X size={16} strokeWidth={2.5} />
+                      <span>Remove</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleAudioUpload}
+                      className="flex items-center gap-2 px-6 bg-[#E09F26] text-[#4A0C16] font-bold rounded-xl hover:bg-[#cf9021] transition-all shadow-md active:scale-95"
+                    >
+                      <Upload size={16} />
+                      <span>Upload</span>
+                    </button>
+                  )}
+                </div>
+                {formData.audioUrl && (
+                  <p className="text-[10px] text-green-600 font-bold flex items-center gap-1 mt-2 ml-1">
+                    <CheckCircle2 size={10} /> Pronunciation track bound accurately.
+                  </p>
+                )}
+              </div>
+
+              {/* Action Submit Control */}
+              <button 
+                type="submit" 
                 disabled={isSubmitting}
-                className="w-full bg-[#4A0C16] text-white py-5 rounded-3xl font-bold flex items-center justify-center gap-3 hover:bg-[#31080E] hover:-translate-y-1 shadow-lg transition-all disabled:opacity-70"
+                className="w-full mt-8 bg-[#4A0C16] hover:bg-[#31080E] text-white py-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-[0_4px_20px_rgba(74,12,22,0.15)] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-[#E09F26]/20"
               >
                 {isSubmitting ? (
-                  <><Loader2 className="animate-spin text-[#E09F26]" size={20} /> Processing...</>
+                  <div className="flex items-center gap-3">
+                    <Loader size="sm" inline={true} />
+                    <span className="text-[10px] tracking-wider text-white">Committing Wisdom Ledger...</span>
+                  </div>
                 ) : (
-                  <><Send size={18} className="text-[#E09F26]" /> {editItem ? "Resubmit Proverb" : "Submit Proverb"}</>
+                  <>
+                    <Send size={14} className="text-[#E09F26]" />
+                    {editItem ? "Commit Proverb Changes" : "Publish Proverb to Validation Queue"}
+                  </>
                 )}
               </button>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
+
+        {/* Right Column: Live Repository Preview Card */}
+        <div className="lg:col-span-5 xl:col-span-4 hidden lg:block">
+          <div className="sticky top-8 space-y-4">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+              <Eye size={14} className="text-[#E09F26]" /> Live Proverb Card Preview
+            </h3>
+            
+            <div className="bg-white rounded-3xl shadow-[0_10px_30px_rgba(74,12,22,0.04)] overflow-hidden flex flex-col h-[390px] border border-gray-100 group transition-all duration-300 hover:shadow-[0_20px_40px_rgba(74,12,22,0.08)]">
+              
+              {/* Card Banner Decorative Display */}
+              <div className="h-32 w-full bg-[#4A0C16]/5 overflow-hidden relative border-b border-gray-50 flex flex-col items-center justify-center px-6 text-center">
+                <Quote size={40} className="text-[#E09F26]/30 absolute left-4 top-4 stroke-[1.5]" />
+                {formData.audioUrl ? (
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 border border-green-200 text-green-700 rounded-full">
+                    <Volume2 size={14} className="animate-pulse" />
+                    <span className="text-[9px] font-black tracking-wider uppercase">Audio Pronunciation Attached</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-400 rounded-full">
+                    <VolumeX size={14} />
+                    <span className="text-[9px] font-black tracking-wider uppercase">No Audio Layer Added</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Card Text Content Preview Area */}
+              <div className="p-5 flex flex-col justify-between flex-1 bg-white">
+                <div className="space-y-2">
+                  <span className="text-[9px] text-[#E09F26] bg-[#E09F26]/10 px-2.5 py-1 rounded-md tracking-widest font-bold uppercase inline-block">
+                    {formData.category}
+                  </span>
+                  <h3 className="font-bold text-lg font-serif text-[#4A0C16] line-clamp-3 leading-tight tracking-wide pt-1">
+                    "{formData.proverb || "Untitled Proverb Entry"}"
+                  </h3>
+                  <p className="text-xs italic text-gray-500 line-clamp-2 leading-relaxed">
+                    {formData.translation ? `Translation: ${formData.translation}` : "English translation preview displays dynamically here..."}
+                  </p>
+                </div>
+                
+                <div className="border-t border-gray-100 pt-3 mt-2">
+                  <p className="text-[11px] text-gray-400 line-clamp-2 leading-relaxed">
+                    {formData.meaning || "Context interpretations and documentation details map out here..."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
       </div>
 
-      <ConfirmationModal isOpen={confirmConfig.isOpen} config={confirmConfig} onClose={closeConfirm} />
+      <ConfirmationModal 
+        isOpen={confirmConfig.isOpen} 
+        config={confirmConfig} 
+        onClose={closeConfirm} 
+      />
     </div>
   );
 };

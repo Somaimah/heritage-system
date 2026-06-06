@@ -11,8 +11,11 @@ import { useToast } from "../../contexts/ToastContext";
 import ConfirmationModal from "../../components/ConfirmationModal";
 import { detectMediaType } from "../../utils/mediaUtils";
 
-// 🟢 ADDED: Import your new custom hook
+// Import your custom hook
 import { useSessionStorage } from "../../hooks/useSessionStorage";
+
+// 🟢 NEW: Import your shared utilities
+import { processTags, CLOUDINARY_WIDGET_STYLE } from "../../utils/formUtils"; 
 
 import {
   collection,
@@ -31,7 +34,7 @@ import {
   Eye, 
   ImageOff,
   CheckCircle2,
-  X // 🟢 ADDED: X icon for the remove button
+  X 
 } from "lucide-react";
 
 const UploadPage = ({ changePage, editItem }) => {
@@ -39,7 +42,6 @@ const UploadPage = ({ changePage, editItem }) => {
 
   const [loading, setLoading] = useState(false);
 
-  // 🟢 CHANGED: Swapped standard useState for useSessionStorage
   const [category, setCategory] = useSessionStorage("upload_category", "Artifact");
   const [title, setTitle] = useSessionStorage("upload_title", "");
   const [description, setDescription] = useSessionStorage("upload_desc", "");
@@ -65,23 +67,7 @@ const UploadPage = ({ changePage, editItem }) => {
         resourceType: "auto", 
         multiple: false,
         theme: "minimal",
-        styles: {
-          palette: {
-            window: "#FFFFFF",
-            windowBorder: "#4A0C16",
-            tabIcon: "#E09F26",
-            menuIcons: "#4A0C16",
-            textDark: "#000000",
-            textLight: "#FFFFFF",
-            link: "#E09F26",
-            action: "#4A0C16",
-            inactiveTabIcon: "#4A0C16",
-            error: "#F44235",
-            inProgress: "#E09F26",
-            complete: "#20B832",
-            sourceBg: "#F4F1EA"
-          }
-        }
+        styles: CLOUDINARY_WIDGET_STYLE // 🟢 CHANGED: Replaced massive block with clean import
       },
       (error, result) => {
         if (!error && result && result.event === "success") {
@@ -171,10 +157,8 @@ const UploadPage = ({ changePage, editItem }) => {
         });
       }
 
-      const tagsArray = tagsInput
-        .split(',')
-        .map(tag => tag.trim().toLowerCase())
-        .filter(tag => tag.length > 0);
+      // 🟢 CHANGED: Utilized processTags utility instead of inline splitting
+      const tagsArray = processTags(tagsInput);
 
       const data = {
         title,
@@ -229,7 +213,6 @@ const UploadPage = ({ changePage, editItem }) => {
         showToast("Upload successful!", "success");
       }
 
-      // 🟢 ADDED: Clear all form storage AFTER successful submission
       const keysToRemove = [
         "upload_category", "upload_title", "upload_desc", "upload_tags", 
         "upload_origin", "upload_author", "upload_recordType", 
@@ -250,7 +233,7 @@ const UploadPage = ({ changePage, editItem }) => {
     <div className="min-h-screen bg-[#FEF9C3] flex flex-col font-sans antialiased selection:bg-[#4A0C16]/10">
       
       <div 
-        className="w-full h-5 bg-[#E09F26] border-b border-[#4A0C16]/30 shadow-sm"
+        className="w-full h-8 bg-[#E09F26] border-b border-[#4A0C16]/30 shadow-sm"
         style={{ 
           backgroundImage: `url(${okirPattern})`,
           backgroundRepeat: 'repeat-x',
@@ -371,7 +354,6 @@ const UploadPage = ({ changePage, editItem }) => {
 
               <div className="space-y-4 pt-2">
                 
-                {/* 🟢 MODIFIED: Image Upload with Remove Button */}
                 <div>
                   <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
                     <ImageIcon size={14} className="text-[#E09F26]" /> Image Resource
@@ -412,7 +394,6 @@ const UploadPage = ({ changePage, editItem }) => {
                   </div>
                 </div>
 
-                {/* 🟢 MODIFIED: PDF Upload with Remove Button */}
                 <div>
                   <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 mb-2 mt-4">
                     <FileText size={14} className="text-[#E09F26]" /> PDF Document (Optional)

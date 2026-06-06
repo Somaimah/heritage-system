@@ -19,7 +19,8 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
       const allProverbs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       const published = allProverbs.filter(item => {
         const stat = (item.status || "").toLowerCase();
-        return stat === "validated" || stat === "posted";
+        // 🟢 THE FIX: Check for status AND make sure isDeleted is false/undefined!
+        return (stat === "validated" || stat === "posted") && !item.isDeleted;
       });
       setProverbs(published);
     }, (error) => console.error("Error fetching proverbs:", error));
@@ -35,14 +36,13 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
       const itemCategory = item.category || "General Life Lessons";
       const matchesCategory = selectedCategory === "All" || itemCategory === selectedCategory;
       
-      // <-- ADDED: Check if the search query matches any of the metadata tags
       const hasTagMatch = Array.isArray(item.tags) && item.tags.some(tag => tag.toLowerCase().includes(normalizedQuery));
 
       const matchesSearch = !normalizedQuery || 
         (item.proverb || "").toLowerCase().includes(normalizedQuery) || 
         (item.meaning || "").toLowerCase().includes(normalizedQuery) ||
         itemCategory.toLowerCase().includes(normalizedQuery) ||
-        hasTagMatch; // <-- ADDED: Include tag matching in the condition
+        hasTagMatch; 
 
       return matchesCategory && matchesSearch;
     });
@@ -117,7 +117,7 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
                       type="button"
                       onClick={(e) => {
                         e.preventDefault();
-                        e.stopPropagation(); // CRITICAL: Stops the card's onClick from firing
+                        e.stopPropagation(); 
                         if (onToggleStar) onToggleStar(item);
                       }}
                       className={`relative z-[100] p-2 rounded-xl transition-all border shadow-sm active:scale-95 ${
@@ -130,7 +130,7 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
                         size={18} 
                         fill={isStarred ? "currentColor" : "none"} 
                         strokeWidth={2.5} 
-                        className="pointer-events-none" // Ensures click passes to the button
+                        className="pointer-events-none" 
                       />
                     </button>
                   )}
@@ -148,7 +148,7 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
 
                 <div className="mt-auto pt-3 border-t border-gray-50 text-right shrink-0 pointer-events-none">
                    <span className="text-[10px] font-bold text-[#E09F26] uppercase tracking-wider group-hover:text-[#4A0C16] transition-colors">
-                     Read Full Detail &rarr;
+                      Read Full Detail &rarr;
                    </span>
                 </div>
               </div>

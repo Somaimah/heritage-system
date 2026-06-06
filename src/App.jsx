@@ -9,8 +9,8 @@ import { useSessionStorage } from "./hooks/useSessionStorage";
 import { ToastProvider } from "./contexts/ToastContext";
 
 // Auth
-import Login from "./auth/Login";
-import Register from "./auth/Register";
+import Login from "./pages/auth/Login";
+import Register from "./pages/auth/Register";
 
 // Dashboards
 import UserDashboard from "./pages/dashboard/UserDashboard";
@@ -85,6 +85,9 @@ const App = () => {
 
   // ================= SECURE ROUTE & SESSION KEEP ALIVE =================
   useEffect(() => {
+    // We tracks initial connection pass before executing state-wiping fallbacks
+    let isInitialAuthCheck = true;
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       try {
         if (currentUser) {
@@ -94,6 +97,7 @@ const App = () => {
           // If they aren't, clean up the stale "isRegistering" flag so it doesn't break the refresh.
           if (pageRef.current === "register") {
             setLoading(false);
+            isInitialAuthCheck = false;
             return; 
           } else if (isRegistering === "true") {
             localStorage.removeItem("isRegistering");
@@ -114,15 +118,18 @@ const App = () => {
           setUser(null);
           setRole("guest");
           
-          // Kick to landing if they are logged out but trying to access a secure page
-          if (!["register", "login", "overview", "landing"].includes(pageRef.current)) {
-            changePage("landing");
+          // 🟢 FIX 2: During the very first check on reload, do NOT clear out the secure page 
+          // stored in sessionStorage until Firebase has officially finished evaluating the token.
+          if (!isInitialAuthCheck) {
+            if (!["register", "login", "overview", "landing"].includes(pageRef.current)) {
+              changePage("landing");
+            }
           }
         }
       } catch (error) {
         console.error("Auth Listener Error:", error);
         
-        // 🟢 FIX 2: If Firestore fails on refresh (network blip or rule delay), 
+        // 🟢 FIX 3: If Firestore fails on refresh (network blip or rule delay), 
         // DO NOT log the user out. Fallback gracefully to keep their layout safe.
         if (currentUser) {
           setUser(currentUser);
@@ -136,6 +143,7 @@ const App = () => {
           changePage("landing");
         }
       } finally {
+        isInitialAuthCheck = false;
         setLoading(false);
       }
     });

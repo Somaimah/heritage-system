@@ -7,6 +7,7 @@ import okirPattern from "../assets/okir-pattern.png";
 const MasterDashboardShell = ({ 
   userRole,           
   userName,           
+  userPhoto,          
   activeTab,          
   setActiveTab,       
   sidebarLinks = [],  
@@ -96,9 +97,22 @@ const MasterDashboardShell = ({
         <div className="p-4 border-t border-[#E09F26]/10 bg-[#3A0911]/60 backdrop-blur-sm shrink-0">
           <div className="flex items-center justify-between bg-white/5 rounded-xl p-3 border border-white/5">
             <div className="flex items-center gap-3 truncate">
-              <div className="w-9 h-9 rounded-full bg-[#E09F26] flex items-center justify-center text-[#4A0C16] font-bold shadow-md shrink-0">
-                <User size={16} strokeWidth={2.5} />
-              </div>
+              
+              {/* ✅ UPDATED AVATAR SECTION */}
+              {userPhoto ? (
+                <img 
+                  src={userPhoto} 
+                  alt={userName} 
+                  className="w-9 h-9 rounded-full border border-[#E09F26]/40 shadow-md shrink-0 object-cover bg-white/10"
+                  referrerPolicy="no-referrer" 
+                />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-[#E09F26] flex items-center justify-center text-[#4A0C16] font-bold shadow-md shrink-0 font-serif">
+                  {userName ? userName.charAt(0).toUpperCase() : <User size={16} strokeWidth={2.5} />}
+                </div>
+              )}
+              {/* ✅ END OF AVATAR SECTION */}
+
               <div className="truncate">
                 <p className="text-xs font-bold text-[#FDF5E6] truncate capitalize font-serif">{userName}</p>
                 <p className="text-[10px] text-white/50 truncate capitalize">{userRole} Account</p>

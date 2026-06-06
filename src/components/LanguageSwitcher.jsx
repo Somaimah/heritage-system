@@ -17,7 +17,6 @@ const LanguageSwitcher = () => {
         onChange={changeLanguage}
         className="bg-transparent text-[#FDF5E6] font-bold focus:outline-none cursor-pointer appearance-none tracking-wide"
       >
-        {/* We keep the options text dark so they are readable against the default white dropdown menu of the browser */}
         <option value="en" className="text-gray-800 font-bold">English</option>
         <option value="tl" className="text-gray-800 font-bold">Tagalog</option>
         <option value="mrw" className="text-gray-800 font-bold">Meranaw</option>

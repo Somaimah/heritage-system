@@ -1,13 +1,8 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { auth, db } from "../../firebase/firebase";
 import { 
-  collection, 
-  onSnapshot, 
   doc, 
-  updateDoc,
-  query,
-  where,
-  or
+  updateDoc
 } from "firebase/firestore";
 import { 
   Archive, Search, ChevronLeft, ChevronRight, Inbox, 
@@ -17,6 +12,9 @@ import {
 import { useToast } from "../../contexts/ToastContext";
 import MasterDashboardShell from "../../components/MasterDashboardShell";
 import ConfirmationModal from "../../components/ConfirmationModal";
+
+// Import the centralized data hook
+import { useSystemData } from "../../hooks/useSystemData"; 
 
 const ModeratorDashboard = ({ changePage, triggerLogout }) => {
   const { showToast } = useToast(); 
@@ -29,12 +27,7 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
     sessionStorage.setItem("moderatorTab", tab);
   }, [tab]);
   
-  const [culturalItems, setCulturalItems] = useState([]);
-  const [proverbItems, setProverbItems] = useState([]); 
-  const [systemFeedbackList, setSystemFeedbackList] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0); 
   const [brokenImages, setBrokenImages] = useState({});
-
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -56,42 +49,30 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
 
   const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
 
-  // ================= DATA STREAM CHANNELS =================
-  useEffect(() => {
-    const q = query(collection(db, "culturalItems"), where("status", "in", ["pending", "uploaded", "returned", "posted", "approved", "deleted", "validated"]));
-    const unsub = onSnapshot(q, (snapshot) => setCulturalItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => showToast(err.message, "error"));
-    return () => unsub();
-  }, [showToast]);
+  // ================= CENTRALIZED DATA STREAM =================
+  // Replaced multiple onSnapshot listeners with the single source of truth
+  const { 
+    culturalItems = [], 
+    proverbItems = [], 
+    systemFeedbacks: systemFeedbackList = [],
+    notifications = []
+  } = useSystemData("moderator");
 
-  useEffect(() => {
-    const q = query(collection(db, "proverb"), where("status", "in", ["pending_moderation", "pending", "uploaded", "submitted", "posted", "published", "validated", "approved", "returned", "deleted"]));
-    const unsub = onSnapshot(q, (snapshot) => setProverbItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => showToast(err.message, "error"));
-    return () => unsub();
-  }, [showToast]);
+  // Process notifications locally for the unread count
+  const unreadCount = useMemo(() => {
+    const user = auth.currentUser;
+    if (!user) return 0;
 
-  useEffect(() => {
-    const q = query(collection(db, "systemFeedbacks"));
-    const unsub = onSnapshot(q, (snapshot) => setSystemFeedbackList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => showToast(err.message, "error"));
-    return () => unsub();
-  }, [showToast]);
+    const unreadItems = notifications.filter(notif => {
+      const isTarget = notif.userId === user.uid || notif.targetRole === "moderator";
+      if (!isTarget) return false;
 
-  useEffect(() => {
-    let unsubSnap = null;
-    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
-      if (unsubSnap) { unsubSnap(); unsubSnap = null; }
-      if (!user) { setUnreadCount(0); return; }
-      const q = query(collection(db, "notifications"), or(where("userId", "==", user.uid), where("targetRole", "==", "moderator")));
-      unsubSnap = onSnapshot(q, (snapshot) => {
-        const unreadItems = snapshot.docs.filter(doc => {
-          const data = doc.data();
-          if (data.userId) return data.read !== true && data.read !== "true";
-          return !(Array.isArray(data.isReadBy) ? data.isReadBy : []).includes(user.uid);
-        });
-        setUnreadCount(unreadItems.length);
-      });
+      if (notif.userId) return notif.read !== true && notif.read !== "true";
+      return !(Array.isArray(notif.isReadBy) ? notif.isReadBy : []).includes(user.uid);
     });
-    return () => { unsubscribeAuth(); if (unsubSnap) unsubSnap(); };
-  }, []);
+
+    return unreadItems.length;
+  }, [notifications, auth.currentUser]);
 
   // ================= METRICS AGGREGATION =================
   const metrics = useMemo(() => {
@@ -139,10 +120,10 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
       oldestItemName, 
       daysPassedStr, 
       pendingCount,
-      culturalPendingCount: culturalItems.filter(i => ["pending", "uploaded"].includes(i.status)).length,
-      proverbPendingCount: proverbItems.filter(i => ["pending_moderation", "pending"].includes(i.status)).length,
-      cultPosted: culturalItems.filter(i => ["posted", "approved"].includes(i.status)),
-      provPosted: proverbItems.filter(i => ["posted", "published", "validated", "approved"].includes((i.status || "").toLowerCase()))
+      culturalPendingCount: culturalItems.filter(i => ["pending", "uploaded"].includes(i.status) && !i.isDeleted).length,
+      proverbPendingCount: proverbItems.filter(i => ["pending_moderation", "pending"].includes(i.status) && !i.isDeleted).length,
+      cultPosted: culturalItems.filter(i => ["posted", "approved"].includes(i.status) && !i.isDeleted),
+      provPosted: proverbItems.filter(i => ["posted", "published", "validated", "approved"].includes((i.status || "").toLowerCase()) && !i.isDeleted)
     };
   }, [culturalItems, proverbItems]);
 
@@ -219,12 +200,13 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
     <MasterDashboardShell 
       userRole="moderator" 
       userName={auth.currentUser?.displayName || (auth.currentUser?.email || "").split("@")[0]} 
+      userPhoto={auth.currentUser?.photoURL}
       activeTab={tab} 
       setActiveTab={setTab} 
       sidebarLinks={moderatorLinks} 
       notificationCount={unreadCount} 
       onNotificationClick={() => changePage("notifications", { fromPage: "dashboard" })} 
-      onLogout={triggerLogout} // <--- Updated: triggerLogout passed directly
+      onLogout={triggerLogout} 
     >
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-8">

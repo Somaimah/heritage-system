@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 
 import { 
-  collection, query, where, or, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, writeBatch, getDocs 
+  collection, query, where, doc, updateDoc, deleteDoc, serverTimestamp, writeBatch, getDocs, onSnapshot 
 } from "firebase/firestore";
 
 import { db, auth } from "../../firebase/firebase";
@@ -18,9 +18,10 @@ import { notifyRole, sendNotification } from "../../services/notificationService
 import { useToast } from "../../contexts/ToastContext";
 import MasterDashboardShell from "../../components/MasterDashboardShell";
 import ProverbPosted from "../proverbs/ProverbPosted";
-
-// Import the Universal Confirmation Modal
 import ConfirmationModal from "../../components/ConfirmationModal";
+
+// Import our new centralized hook
+import { useSystemData } from "../../hooks/useSystemData";
 
 const COLORS = ["#4A0C16", "#E09F26", "#10B981", "#3B82F6"];
 
@@ -32,11 +33,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     return initialTab || sessionStorage.getItem("adminTab") || "analytics";
   });
 
-  const [items, setItems] = useState([]); // Cultural Items (All)
-  const [publishedProverbs, setPublishedProverbs] = useState([]); // Published Proverbs Array
-  const [binnedProverbs, setBinnedProverbs] = useState([]); // Deleted Proverbs
-  const [users, setUsers] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0); 
   const [isSubmitting, setIsSubmitting] = useState(false); 
   const [brokenImages, setBrokenImages] = useState({});
 
@@ -80,83 +76,10 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
 
   const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
 
-  // ================= REAL-TIME DATABASE LISTENERS =================
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, "culturalItems"), (snapshot) => {
-      setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => {
-      showToast(err.message, "error");
-    });
-    return () => unsub();
-  }, [showToast]);
+  // ================= DATA FETCHING (CENTRALIZED HOOK) =================
+  // This single line replaces all 5 separate states and the 5 onSnapshot useEffects!
+  const { items, publishedProverbs, binnedProverbs, users, unreadCount } = useSystemData();
 
-  useEffect(() => {
-    const q = query(collection(db, "proverb"), where("isDeleted", "==", true));
-    const unsub = onSnapshot(q, (snapshot) => {
-      setBinnedProverbs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => {
-      console.error("Deleted Proverbs listener error:", err);
-    });
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    const q = query(collection(db, "proverb"));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const allProverbs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const posted = allProverbs.filter(p => p.status === "posted" && !p.isDeleted);
-      setPublishedProverbs(posted);
-    }, (err) => {
-      console.error("Proverbs listener error:", err);
-    });
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, "users"), (snapshot) => {
-      setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => {
-      showToast(err.message, "error");
-    });
-    return () => unsub();
-  }, [showToast]);
-
-  useEffect(() => {
-    if (!auth.currentUser) return;
-    const currentUid = auth.currentUser.uid;
-    
-    const q = query(
-      collection(db, "notifications"),
-      or(
-        where("userId", "==", currentUid),
-        where("targetRoles", "array-contains", "admin"),
-        where("targetRole", "==", "admin"),
-        where("role", "==", "admin")
-      )
-    );
-    
-    const unsub = onSnapshot(q, (snapshot) => {
-      const unread = snapshot.docs.filter(doc => {
-        const data = doc.data();
-        if (data.read === true || data.read === "true") return false;
-        if (data.isReadBy && data.isReadBy.includes(currentUid)) return false;
-
-        const isMyIndividualNotif = data.userId === currentUid;
-        const rolesArray = data.targetRoles || [];
-        const singleRole = data.targetRole || data.role || "";
-        const matchesMyRole = rolesArray.includes("admin") || singleRole.toLowerCase() === "admin";
-
-        return isMyIndividualNotif || matchesMyRole;
-      });
-
-      setUnreadCount(unread.length);
-    }, (error) => {
-      console.error("Notification listener error:", error);
-    });
-    
-    return () => unsub();
-  }, []);
-  
   // ================= DATA DERIVATION (MEMOIZED) =================
   const { activeItems, binnedCulturalItems } = useMemo(() => {
     return {
@@ -217,7 +140,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     return { categoryData: catData, uniqueCategories: uniqueCats };
   }, [activeItems, allPosted]);
 
-  // UPDATED: Enhanced Item filtering (Title, Description, Meaning, and Tags)
+  // Enhanced Item filtering (Title, Description, Meaning, and Tags)
   const { displayValidated, displayPosted } = useMemo(() => {
     const filtered = activeItems.filter(item => {
       const searchLower = searchQuery.toLowerCase();
@@ -234,11 +157,11 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
       displayValidated: filtered.filter(i => 
         i.status === "validated" || i.status === "pending_admin"
       ),
-  displayPosted: filtered.filter(i => i.status === "posted")
-};
+      displayPosted: filtered.filter(i => i.status === "posted")
+    };
   }, [activeItems, searchQuery, selectedCategory]);
 
-  // NEW: Search for Users
+  // Search for Users
   const displayUsers = useMemo(() => {
     return users.filter(u => {
       const searchLower = searchQuery.toLowerCase();
@@ -255,7 +178,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     }).slice(0, 5);
   }, [activeItems]);
 
-  // UPDATED: Search for Recycle Bin Items
+  // Search for Recycle Bin Items
   const activeBinItems = useMemo(() => {
     const baseItems = binFilter === "cultural" ? binnedCulturalItems : binnedProverbs;
     return baseItems.filter(item => {
@@ -294,7 +217,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
 
   // ================= ACTION HANDLERS =================
 
-  const handleDeleteItem = (itemId) => {
+  const handleDeleteItem = (itemId, collectionName = "culturalItems") => {
     if (isSubmitting) return;
     setConfirmConfig({
       isOpen: true,
@@ -305,32 +228,39 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
       onConfirm: async () => {
         setIsSubmitting(true);
         try {
-          
-          await updateDoc(doc(db, "culturalItems", itemId), { 
+          // 1. DYNAMIC COLLECTION: Works for both culturalItems and proverbs now
+          await updateDoc(doc(db, collectionName, itemId), { 
             isDeleted: true,
-            status: "trashed", // THIS is what hides it from the other dashboards!
+            status: "trashed", 
             deletedAt: serverTimestamp(),
             deletedBy: auth.currentUser?.uid
           });
 
+          // 2. BOOKMARKS FIX: Wrapped in its own try/catch. 
+          // If Firestore blocks it, it won't crash the whole deletion process.
+          try {
+            const bookmarksRef = collection(db, "bookmarks");
+            const q = query(bookmarksRef, where("itemId", "==", itemId));
+            const snapshot = await getDocs(q);
 
-          const bookmarksRef = collection(db, "bookmarks");
-          const q = query(bookmarksRef, where("itemId", "==", itemId));
-          const snapshot = await getDocs(q);
-
-          if (!snapshot.empty) {
-            const batch = writeBatch(db);
-            snapshot.docs.forEach((bookmarkDoc) => {
-              batch.delete(bookmarkDoc.ref);
-            });
-            await batch.commit();
+            if (!snapshot.empty) {
+              const batch = writeBatch(db);
+              snapshot.docs.forEach((bookmarkDoc) => {
+                batch.delete(bookmarkDoc.ref);
+              });
+              await batch.commit();
+            }
+          } catch (bookmarkErr) {
+            console.warn("Could not delete bookmarks (Check Firestore Rules), but item was trashed.", bookmarkErr);
           }
 
-          showToast('Record relocated to system bin and bookmarks cleared.', "success");
+          showToast('Record relocated to system bin.', "success");
         } catch (err) { 
           showToast(err.message, "error"); 
         } finally {
           setIsSubmitting(false);
+          // 3. MODAL FIX: Closes the modal so the next click works perfectly
+          setConfirmConfig((prev) => ({ ...prev, isOpen: false })); 
         }
       }
     });
@@ -348,7 +278,9 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
         setIsSubmitting(true);
         try {
           const collectionName = binFilter === "cultural" ? "culturalItems" : "proverb";
-          const resetStatus = "pending_admin";
+          
+          // ✅ FIX: Match the status word your Moderator is filtering for
+          const resetStatus = binFilter === "cultural" ? "pending_admin" : "pending_moderation";
 
           await updateDoc(doc(db, collectionName, item.id), {
             isDeleted: false,
@@ -356,19 +288,23 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
             restoredAt: serverTimestamp()
           });
 
-          await notifyRole({
-            role: "admin",
-            message: `Admin restored ${binFilter === "cultural" ? "Cultural Item" : "Proverb"} "${item.title || 'Data'}". Review required.`,
-            type: "item_restored",
-            itemId: item.id,
-            isReadBy: []
-          });
+          // Notify the moderator if a Proverb is restored
+          if (binFilter === "proverb") {
+            await notifyRole({
+              role: "moderator",
+              message: `System Admin restored the Proverb "${item.proverb || 'Data'}". Please re-evaluate for posting.`,
+              type: "item_restored",
+              itemId: item.id,
+              isReadBy: []
+            });
+          }
 
-          showToast("Item restored to queue.", "success");
+          showToast("Item restored to the validation queue.", "success");
         } catch (err) {
           showToast(err.message, "error");
         } finally {
           setIsSubmitting(false);
+          setConfirmConfig((prev) => ({ ...prev, isOpen: false }));
         }
       }
     });
@@ -392,6 +328,8 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
           showToast(err.message, "error");
         } finally {
           setIsSubmitting(false);
+          // MODAL FIX: Close the modal immediately
+          setConfirmConfig((prev) => ({ ...prev, isOpen: false }));
         }
       }
     });
@@ -476,6 +414,29 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     );
   };
 
+  // ================= LIVE SEARCH ANALYTICS (TYPO FILTERED) =================
+  const [searchAnalytics, setSearchAnalytics] = useState([]);
+
+  useEffect(() => {
+    const q = query(collection(db, "search_analytics"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const logs = snapshot.docs.map(doc => doc.data().query);
+      setSearchAnalytics(logs);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // The Typo Shield: Count words, ignore anything searched only 1 time, sort, and grab top 15
+  const trendingSearches = Object.entries(
+    searchAnalytics.reduce((acc, word) => {
+      acc[word] = (acc[word] || 0) + 1;
+      return acc;
+    }, {})
+  )
+  .filter(([word, count]) => count > 1) 
+  .sort((a, b) => b[1] - a[1]) 
+  .slice(0, 15);
+
   const totalBinCount = binnedCulturalItems.length + binnedProverbs.length;
 
   const adminLinks = [
@@ -491,6 +452,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     <MasterDashboardShell
       userRole="admin"
       userName={getUserDisplayName()}
+      userPhoto={auth.currentUser?.photoURL}
       activeTab={tab}
       setActiveTab={setTab}
       sidebarLinks={adminLinks}
@@ -521,7 +483,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
 
       <hr className="my-8 border-t border-[#E09F26]/20 mx-auto w-[98%]" />
 
-      {/* 🔍 UPDATED: FILTERING UTILITY UNIT (Now appears for Users and Bin too) */}
+      {/* 🔍 FILTERING UTILITY UNIT */}
       {(tab === "validation" || tab === "archive" || tab === "users" || tab === "recycle_bin") && (
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
           <div className="relative flex-1 group">
@@ -552,6 +514,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
       {/* 🖥️ CENTRAL RENDERING ENGINE */}
       <div className="min-h-[400px]">
         
+        {/* TAB: ANALYTICS MATRIX */}
         {/* TAB: ANALYTICS MATRIX */}
         {tab === "analytics" && (
           <div className="space-y-8 animate-fadeIn">
@@ -608,6 +571,30 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
               </div>
             </div>
 
+            {/* NEW ADDITION: MOST SEARCHED KEYWORDS / METADATA TAGS */}
+            <div className="bg-white rounded-3xl border border-[#E09F26]/15 p-6 shadow-[0_4px_25px_rgba(74,12,22,0.01)]">
+              <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+                <Search className="text-[#E09F26] w-5 h-5" />
+                <h3 className="text-base font-bold text-[#4A0C16] font-serif">Verified Search Trends</h3>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {trendingSearches.length === 0 ? (
+                  <p className="text-gray-400 text-xs italic py-2">
+                    Awaiting consistent search trends (ignoring single typos)...
+                  </p>
+                ) : (
+                  trendingSearches.map(([word, count], i) => (
+                    <div key={i} className="px-3 py-1.5 bg-[#FEF9C3]/20 border border-[#E09F26]/30 rounded-xl flex items-center gap-2">
+                      <span className="text-xs font-bold text-[#4A0C16] capitalize">{word}</span>
+                      <span className="bg-[#4A0C16] text-white text-[9px] px-1.5 py-0.5 rounded-md font-black">
+                        {count} Searches
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
             <div className="bg-white rounded-3xl border border-[#E09F26]/15 p-6 shadow-[0_4px_25px_rgba(74,12,22,0.01)]">
               <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
                 <Activity className="text-[#E09F26] w-5 h-5" />
@@ -638,7 +625,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
             </div>
           </div>
         )}
-
         {/* TAB: VALIDATION QUEUE */}
         {tab === "validation" && (
           <div className="animate-fadeIn">
@@ -754,7 +740,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
         {/* TAB: CULTURAL ARCHIVE */}
         {tab === "archive" && (
           <div className="animate-fadeIn">
-            {/* The sidebar count uses displayPosted.length, which is now filtered correctly */}
             {displayPosted.length === 0 ? (
               <div className="bg-white/60 backdrop-blur-sm p-16 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center justify-center max-w-lg mx-auto">
                 <Archive className="w-10 h-10 text-gray-300 mb-2" />
@@ -817,7 +802,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
                 ))}
               </div>
             )}
-            {/* Correct pagination count */}
             {renderPaginationSlider(archivePage, setArchivePage, displayPosted.length, itemsPerPage)}
           </div>
         )}

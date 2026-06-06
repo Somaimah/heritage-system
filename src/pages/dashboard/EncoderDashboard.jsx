@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { auth, db } from "../../firebase/firebase";
-import { collection, query, onSnapshot, where, doc } from "firebase/firestore"; 
+import { doc, onSnapshot } from "firebase/firestore"; 
 import {
   BookOpen, Upload, Archive, RotateCcw, Sparkles, Search, LayoutDashboard, ChevronLeft, ChevronRight, Quote, Clock, Edit3
 } from "lucide-react";
@@ -8,10 +8,21 @@ import {
 import MasterDashboardShell from "../../components/MasterDashboardShell";
 import WordOfTheDayConsole from "../../pages/dashboard/WordOfTheDayConsole";
 import ConfirmationModal from "../../components/ConfirmationModal";
+import { useSystemData } from "../../hooks/useSystemData"; 
 
 const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
-  const [items, setItems] = useState([]);
-  const [proverbItems, setProverbItems] = useState([]); 
+  // ================= SYSTEM DATA INTEGRATION =================
+  const { 
+    culturalItems: rawCulturalItems = [], 
+    proverbItems: rawProverbs = [], 
+    unreadCount 
+  } = useSystemData("encoder");
+
+  // Preserve exact original behavior: filter out deleted items
+  const items = useMemo(() => rawCulturalItems.filter(item => !item.isDeleted), [rawCulturalItems]);
+  const proverbItems = useMemo(() => rawProverbs.filter(item => !item.isDeleted), [rawProverbs]);
+
+  // ================= LOCAL STATES =================
   const [tab, setTab] = useState(() => {
     return sessionStorage.getItem("encoder_active_tab") || "posted";
   });
@@ -21,7 +32,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   const [revisionType, setRevisionType] = useState(() => {
     return sessionStorage.getItem("encoder_revision_type") || "cultural";
   });
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [todayWordData, setTodayWordData] = useState(null);
 
   const categories = ["all", "Artifact", "Historical Record", "Publication"];
@@ -58,25 +68,7 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     });
   };
 
-  // ================= NOTIFICATION LISTENER =================
-  useEffect(() => {
-    const uid = user?.uid || auth.currentUser?.uid;
-    if (!uid) return;
-    const q = query(collection(db, "notifications"));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const unread = snapshot.docs.filter(doc => {
-        const data = doc.data();
-        const isMine = data.userId === uid;
-        const matchesMyRole = (data.targetRoles || []).includes("encoder") || (data.targetRole || "").toLowerCase() === "encoder";
-        const belongsToMe = isMine || matchesMyRole;
-        const isUnread = data.userId ? (data.read !== true && data.read !== "true") : !(data.isReadBy || []).includes(uid);
-        return belongsToMe && isUnread;
-      });
-      setUnreadNotifications(unread.length);
-    });
-    return () => unsub();
-  }, [user]);
-
+  // ================= SESSION STORAGE SYNC =================
   useEffect(() => {
     sessionStorage.setItem("encoder_active_tab", tab);
   }, [tab]);
@@ -84,8 +76,13 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   useEffect(() => {
     sessionStorage.setItem("encoder_revision_type", revisionType);
   }, [revisionType]);
+
+  // ✅ Reset pagination to Page 1 whenever view filters change to prevent empty slices
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [tab, selectedCategory, revisionType, searchQuery]);
   
-  // ================= DATA LOADERS =================
+  // ================= WORD OF THE DAY LOADER =================
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "wordOfDay", "today"), (docSnap) => {
       if (docSnap.exists()) {
@@ -96,35 +93,6 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     });
     return () => unsub();
   }, []);
-
-  
-  useEffect(() => {
-    const uid = user?.uid || auth.currentUser?.uid;
-    if (!uid) return;
-    const q = query(collection(db, "culturalItems")); 
-    const unsub = onSnapshot(q, (snapshot) => {
-      setItems(
-        snapshot.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter(item => !item.isDeleted) 
-      );
-    });
-    return () => unsub();
-  }, [user]);
-
-  useEffect(() => {
-    const uid = user?.uid || auth.currentUser?.uid;
-    if (!uid) return;
-    const q = query(collection(db, "proverb"));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter(item => !item.isDeleted); 
-      
-      setProverbItems(list);
-    });
-    return () => unsub();
-  }, [user]);
 
   // ================= STATS LOGIC =================
   const statsMetrics = useMemo(() => {
@@ -164,8 +132,7 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     return { uploadedToday, revisionItemName, daysPassedStr, totalPosted, returnedCount: returnedItems.length };
   }, [items, proverbItems]);
 
-  // ================= FILTERS & SEARCH (Metadata Integrated) =================
-  
+  // ================= FILTERS & SEARCH =================
   const filteredCulturalItems = useMemo(() => {
     const queryLower = searchQuery.toLowerCase();
     return items.filter(item => {
@@ -188,18 +155,29 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   }, [proverbItems, searchQuery]);
 
   // Item subsets for Tabs
-const postedItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "posted"), [filteredCulturalItems]); // 👈 REMOVED || i.status === "validated"
-const submissionItems = useMemo(() => filteredCulturalItems.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status)), [filteredCulturalItems]);
-const returnedCulturalItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "returned"), [filteredCulturalItems]);
-const returnedProverbItems = useMemo(() => filteredProverbItems.filter(i => i.status === "returned"), [filteredProverbItems]);
-const postedProverbs = useMemo(() => filteredProverbItems.filter(i => ["posted", "approved", "published"].includes((i.status || "").toLowerCase())), [filteredProverbItems]); 
+  const postedItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "posted"), [filteredCulturalItems]);
+  
+  // ✅ Correctly combine both Cultural Items and Proverbs in the Submission track
+  const submissionItems = useMemo(() => {
+    const culturalSubs = filteredCulturalItems.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status));
+    const proverbSubs = filteredProverbItems.filter(i => ["pending", "pending_moderation", "returned", "posted", "approved", "published"].includes(i.status));
+    return [...culturalSubs, ...proverbSubs];
+  }, [filteredCulturalItems, filteredProverbItems]);
 
-  // ================= SIDEBAR LINKS (Static Counts) =================
-const encoderLinks = useMemo(() => {
-  const totalPostedItemsCount = items.filter(i => i.status === "posted").length; // 👈 REMOVED || i.status === "validated"
-  const totalSubmissionsCount = items.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status)).length;
-  const totalPostedProverbsCount = proverbItems.filter(i => ["posted", "approved", "published"].includes((i.status || "").toLowerCase())).length; 
-  const totalReturnedBaseCount = items.filter(i => i.status === "returned").length + proverbItems.filter(i => i.status === "returned").length;
+  const returnedCulturalItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "returned"), [filteredCulturalItems]);
+  const returnedProverbItems = useMemo(() => filteredProverbItems.filter(i => i.status === "returned"), [filteredProverbItems]);
+  const postedProverbs = useMemo(() => filteredProverbItems.filter(i => ["posted", "approved", "published"].includes((i.status || "").toLowerCase())), [filteredProverbItems]); 
+
+  // ================= SIDEBAR LINKS =================
+  const encoderLinks = useMemo(() => {
+    const totalPostedItemsCount = items.filter(i => i.status === "posted").length; 
+    
+    // ✅ Reflects combined submissions count accurately
+    const totalSubmissionsCount = items.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status)).length +
+                                  proverbItems.filter(i => ["pending", "pending_moderation", "returned", "posted", "approved", "published"].includes(i.status)).length;
+                                  
+    const totalPostedProverbsCount = proverbItems.filter(i => ["posted", "approved", "published"].includes((i.status || "").toLowerCase())).length; 
+    const totalReturnedBaseCount = items.filter(i => i.status === "returned").length + proverbItems.filter(i => i.status === "returned").length;
 
     return [
       { value: "posted", label: "Cultural Archive", icon: <Archive size={16} />, badge: totalPostedItemsCount },
@@ -246,10 +224,11 @@ const encoderLinks = useMemo(() => {
     <MasterDashboardShell
       userRole="encoder"
       userName={auth.currentUser?.displayName || auth.currentUser?.email?.split("@")[0]}
+      userPhoto={auth.currentUser?.photoURL} // ✅ ADDED THIS PROP HERE
       activeTab={tab}
       setActiveTab={setTab}
       sidebarLinks={encoderLinks}
-      notificationCount={unreadNotifications}
+      notificationCount={unreadCount}
       onNotificationClick={() => changePage("notifications", { fromPage: "dashboard" })}
       onLogout={triggerLogout}
     >
@@ -371,19 +350,30 @@ const encoderLinks = useMemo(() => {
 
             {tab === "submissions" && (
               <div className="bg-white rounded-3xl border border-[#E09F26]/20 overflow-hidden shadow-sm">
-                <table className="w-full text-left">
+                <table className="w-full text-left table-fixed">
                   <thead className="bg-[#4A0C16] text-[#E09F26] text-[9px] font-black uppercase tracking-widest">
-                    <tr><th className="p-5 pl-8">Resource Title</th><th className="p-5">Registry Status</th></tr>
+                    <tr>
+                      <th className="p-5 pl-8 w-2/3">Resource Title / Proverb</th>
+                      <th className="p-5 w-1/3">Registry Status</th>
+                    </tr>
                   </thead>
                   <tbody className="text-xs">
                     {paginatedItems.map(item => (
                       <tr key={item.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
-                        <td className="p-5 pl-8 font-bold text-[#4A0C16] font-serif text-sm">{item.title || item.proverb}</td>
+                        {/* ✅ Added truncate rules and a title attribute for tooltips */}
+                        <td 
+                          className="p-5 pl-8 font-bold text-[#4A0C16] font-serif text-sm truncate max-w-xs md:max-w-md" 
+                          title={item.title || item.proverb}
+                        >
+                          {item.title || item.proverb}
+                        </td>
                         <td className="p-5">
-                          <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
+                          <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border whitespace-nowrap ${
                             item.status === 'returned' ? 'bg-red-50 text-red-600 border-red-100' : 
-                            item.status === 'posted' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-[#FEF9C3] text-[#A16207] border-[#FEF08A]'
-                          }`}>{item.status}</span>
+                            ['posted', 'approved', 'published'].includes(item.status) ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-[#FEF9C3] text-[#A16207] border-[#FEF08A]'
+                          }`}>
+                            {item.status.replace("_", " ")}
+                          </span>
                         </td>
                       </tr>
                     ))}

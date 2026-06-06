@@ -1,23 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { db, auth } from "../../firebase/firebase";
+import { auth, db } from "../../firebase/firebase";
 import okirPattern from "../../assets/okir-pattern.png";
 import Loader from "../../components/Loader";
 
-// Context & Components
+// Context, Components & Utilities
 import { useToast } from "../../contexts/ToastContext"; 
 import ConfirmationModal from "../../components/ConfirmationModal";
+import { 
+  handleStatusUpdate, 
+  handleMoveToTrash, 
+  handleRestore, 
+  handleToggleBookmark, 
+  incrementItemView, 
+  checkIsBookmarked 
+} from "../../utils/archiveUtils";
 
-import {
-  doc,
-  getDoc,
-  setDoc,
-  deleteDoc,
-  updateDoc,
-  increment,
-  collection,
-  serverTimestamp,
-  onSnapshot
-} from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 
 import {
   Bookmark,
@@ -68,6 +66,10 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
 
   const targetCollection = "culturalItems";
 
+  // --- STANDARDIZED SAFE STRINGS ---
+  const safeRole = String(role || "").toLowerCase().trim();
+  const safeStatus = String(item?.status || "").toLowerCase().trim();
+
   // ================= LOAD ITEM =================
   useEffect(() => {
     if (!itemId) return;
@@ -91,69 +93,26 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
 
   // ================= VIEW & BOOKMARK LOGIC =================
   useEffect(() => {
-    if (role === "user" && itemId && item?.status === "posted") {
-      const incrementView = async () => {
-        try {
-          await updateDoc(doc(db, targetCollection, itemId), { viewCount: increment(1) });
-        } catch (err) { console.error("View count error:", err); }
-      };
-      incrementView();
+    if (safeRole === "user" && itemId && safeStatus === "posted") {
+      incrementItemView(itemId, targetCollection);
     }
 
     const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
-      if (user && role === "user" && itemId) {
+      if (user && safeRole === "user" && itemId) {
         try {
-          const bookmarkRef = doc(db, "bookmarks", `${user.uid}_${itemId}`);
-          const bookmarkSnap = await getDoc(bookmarkRef);
-          if (bookmarkSnap.exists()) setBookmarked(true);
+          const isSaved = await checkIsBookmarked(itemId);
+          setBookmarked(isSaved);
         } catch (err) { console.error("Bookmark check error:", err); }
       }
     });
 
     return () => unsubscribeAuth();
-  }, [itemId, role, item?.status]);
+  }, [itemId, safeRole, safeStatus]);
 
-  // ================= FIREBASE EXECUTORS & NOTIFICATIONS =================
+  // ================= FIREBASE EXECUTORS (Using archiveUtils) =================
   const executeStatusChange = async (newStatus, requiresFeedback = false) => {
     try {
-      const updateData = {
-        status: newStatus,
-        feedback: requiresFeedback ? feedback : "",
-        isDeleted: false,
-        updatedAt: serverTimestamp()
-      };
-      
-      if (newStatus === "posted") updateData.postedAt = serverTimestamp();
-
-      await updateDoc(doc(db, targetCollection, item.id), updateData);
-
-      // 1. Notify Encoder
-      const encoderId = item.encoderId || item.createdBy;
-      if (encoderId) {
-        await setDoc(doc(collection(db, "notifications")), {
-          userId: encoderId,
-          message: `Your entry "${item.title || item.term}" status updated to: ${newStatus.toUpperCase()}`,
-          itemId: item.id,
-          createdAt: serverTimestamp(),
-          read: false,
-          isReadBy: []
-        });
-      }
-
-      // 2. Notify Admin
-      if (role === "moderator" && newStatus === "validated") {
-        await setDoc(doc(collection(db, "notifications")), {
-          targetRole: "admin",
-          role: "admin",
-          message: `Review required: Moderator validated "${item.title || item.term}".`,
-          itemId: item.id,
-          type: "validation_request",
-          createdAt: serverTimestamp(),
-          read: false,
-          isReadBy: []
-        });
-      }
-
+      await handleStatusUpdate(item, targetCollection, newStatus, requiresFeedback ? feedback : "", safeRole);
       showToast(`Record status updated to ${newStatus} successfully.`, "success");
       changePage(fromPage ? fromPage : "dashboard");
     } catch (err) {
@@ -163,11 +122,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
 
   const executeDelete = async () => {
     try {
-      await updateDoc(doc(db, targetCollection, item.id), {
-        isDeleted: true,
-        deletedAt: serverTimestamp(),
-        deletedBy: auth.currentUser?.uid || role,
-      });
+      await handleMoveToTrash(item.id, targetCollection, safeRole);
       showToast("Item successfully moved to Recycle Bin.", "success");
       changePage(fromPage ? fromPage : "dashboard");
     } catch (err) {
@@ -177,10 +132,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
 
   const executeRestore = async () => {
     try {
-      await updateDoc(doc(db, targetCollection, item.id), {
-        isDeleted: false,
-        restoredAt: serverTimestamp()
-      });
+      await handleRestore(item.id, targetCollection);
       showToast("Item restored to active records.", "success");
     } catch (err) {
       showToast("Restoration Failed: " + err.message, "error");
@@ -189,28 +141,11 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
 
   const toggleBookmark = async () => {
     try {
-      if (!auth.currentUser) return showToast("You must be logged in to save items.", "info");
-      const bookmarkId = `${auth.currentUser.uid}_${item.id}`;
-      const bookmarkRef = doc(db, "bookmarks", bookmarkId);
-
-      if (bookmarked) {
-        await deleteDoc(bookmarkRef);
-        setBookmarked(false);
-        showToast("Removed from your collection.", "info");
-      } else {
-        await setDoc(bookmarkRef, {
-          userId: auth.currentUser.uid,
-          itemId: item.id,
-          itemType: "cultural",
-          title: item.title || "",
-          imageUrl: item.imageUrl || "",
-          createdAt: serverTimestamp()
-        });
-        setBookmarked(true);
-        showToast("Saved to your collection!", "success");
-      }
+      const newState = await handleToggleBookmark(item, bookmarked);
+      setBookmarked(newState);
+      showToast(newState ? "Saved to your collection!" : "Removed from your collection.", newState ? "success" : "info");
     } catch (err) {
-      showToast("Bookmark Action Failed: " + err.message, "error");
+      showToast(err.message, "error");
     }
   };
 
@@ -267,11 +202,20 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
   if (loading) return <Loader size="md" />;
   if (!item) return <div className="text-center p-20 font-serif text-[#4A0C16]">Heritage Entry Not Found</div>;
 
-  // ================= PERMISSIONS =================
-  const isValidationMode = (role === "moderator" && item.status === "pending") || (role === "admin" && (item.status === "validated" || item.status === "pending"));
-  const canEdit = (role === "encoder" || role === "admin") && (item.status === "returned" || item.status === "pending");
-  const canDelete = role === "admin";
-  const hideInternalStats = role === "user" || role === "guest" || fromPage === "overview";
+  // ================= PERMISSIONS & VISIBILITY LOGIC =================
+  const isValidationMode = 
+    (safeRole === "moderator" && safeStatus === "pending") || 
+    (safeRole === "admin" && (
+        safeStatus === "validated" || 
+        safeStatus.includes("pending") || 
+        safeStatus.includes("valid")
+    ));
+
+    const canEdit = 
+    (safeRole === "encoder" && (safeStatus === "returned" || safeStatus.includes("pending"))) || 
+    (safeRole === "admin" && safeStatus === "returned");
+  const canDelete = safeRole === "admin";
+  const hideInternalStats = safeRole === "user" || safeRole === "guest" || fromPage === "overview";
   const hasFeedback = feedback.trim().length > 0;
 
   // ================= MEDIA NORMALIZATION =================
@@ -405,13 +349,13 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
                     <InfoCard label="Primary Material" value={item.material} icon={Hammer} />
                     <InfoCard label="Geographic Origin" value={item.origin} icon={ArrowLeft} />
                     <InfoCard label="Archivist/Author" value={item.author} icon={Edit} />
-                    {!hideInternalStats && item.status === "posted" && (
+                    {!hideInternalStats && safeStatus === "posted" && (
                         <InfoCard label="Engagement" value={`${item.viewCount || 0} Views`} icon={Eye} />
                     )}
                 </div>
 
                 {/* MODERATOR FEEDBACK SECTION */}
-                {item.status === "returned" && item.feedback && (
+                {safeStatus === "returned" && item.feedback && (
                     <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl">
                         <div className="flex items-center gap-2 text-red-700 font-bold text-xs uppercase mb-1">
                             <RotateCcw size={14} /> Correction Required
@@ -432,11 +376,11 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
                             />
                             <div className="flex gap-3">
                                 <button
-                                    onClick={() => triggerStatusChange(role === "moderator" ? "validated" : "posted", false)}
+                                    onClick={() => triggerStatusChange(safeRole === "moderator" ? "validated" : "posted", false)}
                                     disabled={hasFeedback}
                                     className={`flex-1 font-bold py-4 rounded-xl text-xs uppercase flex justify-center items-center gap-2 transition-all ${hasFeedback ? 'bg-gray-200 text-gray-400' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-200'}`}
                                 >
-                                    <CheckCircle size={16} /> {role === "admin" ? "Publish to Live" : "Verify Entry"}
+                                    <CheckCircle size={16} /> {safeRole === "admin" ? "Publish to Live" : "Verify Entry"}
                                 </button>
                                 <button
                                     onClick={() => triggerStatusChange("returned", true)}
@@ -449,7 +393,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
                     )}
 
                     <div className="flex flex-wrap gap-3">
-                        {role === "user" && !item.isDeleted && (
+                        {safeRole === "user" && !item.isDeleted && (
                             <button onClick={toggleBookmark} className={`flex-1 py-4 px-6 rounded-2xl font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all ${bookmarked ? "bg-[#E09F26] text-[#4A0C16] scale-95" : "bg-[#4A0C16] text-white hover:bg-[#31080E]"}`}>
                                 <Bookmark size={16} fill={bookmarked ? "currentColor" : "none"} />
                                 {bookmarked ? "Item Saved" : "Save to Collection"}
