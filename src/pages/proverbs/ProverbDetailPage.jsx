@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { db, auth } from "../../firebase/firebase";
-import { 
-  doc, 
-  getDoc, 
-  updateDoc, 
-  deleteDoc, 
-  serverTimestamp 
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp,
+  addDoc,      // Added for notifications
+  collection   // Added for notifications
 } from "firebase/firestore";
-import { 
-  Quote, AlertCircle, Trash2, CheckCircle, XCircle, 
+import {
+  Quote, AlertCircle, Trash2, CheckCircle, XCircle,
   MessageSquare, Edit3, Save, Loader2, RotateCcw, Volume2, X, Eye
 } from "lucide-react";
 
@@ -17,9 +19,9 @@ import ConfirmationModal from "../../components/ConfirmationModal";
 import okirPattern from "../../assets/okir-pattern.png";
 
 // Shared database engine
-import { 
-  handleStatusUpdate, 
-  handleMoveToTrash, 
+import {
+  handleStatusUpdate,
+  handleMoveToTrash,
   handleRestore,
   incrementItemView
 } from "../../utils/archiveUtils";
@@ -40,12 +42,12 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [processing, setProcessing] = useState(false);
-  
+ 
   // Input States
   const [editedProverb, setEditedProverb] = useState("");
   const [editedMeaning, setEditedMeaning] = useState("");
   const [feedback, setFeedback] = useState("");
-  
+ 
   const { showToast } = useToast();
 
   // --- MODAL STATE ---
@@ -54,7 +56,7 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
   });
 
   const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
-  const targetCollection = "proverb"; 
+  const targetCollection = "proverb";
 
   // ================= LOAD ITEM =================
   useEffect(() => {
@@ -93,7 +95,7 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
     try {
       await handleStatusUpdate(item, targetCollection, newStatus, newStatus === "returned" ? feedback : (item.feedback || ""), role);
       showToast(newStatus === "posted" ? "Proverb Published!" : "Returned to Encoder", "success");
-      changePage("dashboard"); 
+      changePage("dashboard");
     } catch (err) {
       console.error(err);
       showToast("Action failed", "error");
@@ -118,11 +120,29 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
   const executeRestore = async () => {
     setProcessing(true);
     try {
-      await handleRestore(itemId, targetCollection);
-      showToast("Proverb Restored", "success");
+      const itemRef = doc(db, targetCollection, itemId);
+      
+      // 1. Update the document status
+      await updateDoc(itemRef, {
+        isDeleted: false,
+        status: "pending_moderation",
+        updatedAt: serverTimestamp()
+      });
+
+      // 2. Explicitly create the notification for the moderator
+      await addDoc(collection(db, "notifications"), {
+        targetRole: "moderator",
+        message: `System Admin restored the Proverb "${item?.proverb || 'Data'}". Please re-evaluate.`,
+        type: "item_restored",
+        itemId: itemId,
+        createdAt: serverTimestamp(),
+        isReadBy: [] 
+      });
+
+      showToast("Proverb restored to Moderator queue.", "success");
       changePage("dashboard");
     } catch (err) {
-      showToast("Restore failed", "error");
+      showToast("Restore failed: " + err.message, "error");
     } finally {
       setProcessing(false);
     }

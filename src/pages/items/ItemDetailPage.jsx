@@ -15,7 +15,8 @@ import {
   checkIsBookmarked 
 } from "../../utils/archiveUtils";
 
-import { doc, onSnapshot } from "firebase/firestore";
+// ADDED: updateDoc and serverTimestamp to the imports below
+import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 
 import {
   Bookmark,
@@ -109,7 +110,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
     return () => unsubscribeAuth();
   }, [itemId, safeRole, safeStatus]);
 
-  // ================= FIREBASE EXECUTORS (Using archiveUtils) =================
+  // ================= FIREBASE EXECUTORS =================
   const executeStatusChange = async (newStatus, requiresFeedback = false) => {
     try {
       await handleStatusUpdate(item, targetCollection, newStatus, requiresFeedback ? feedback : "", safeRole);
@@ -130,10 +131,20 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
     }
   };
 
+  // FIXED: Explicitly setting pending_admin so it doesn't vanish
   const executeRestore = async () => {
     try {
-      await handleRestore(item.id, targetCollection);
-      showToast("Item restored to active records.", "success");
+      const itemRef = doc(db, targetCollection, item.id);
+      
+      await updateDoc(itemRef, {
+        isDeleted: false,
+        status: "pending_admin", 
+        updatedAt: serverTimestamp()
+      });
+
+      showToast("Item restored to Admin validation queue.", "success");
+      if (typeof changePage === 'function') changePage(fromPage || "dashboard");
+      
     } catch (err) {
       showToast("Restoration Failed: " + err.message, "error");
     }
