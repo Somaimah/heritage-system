@@ -95,13 +95,68 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
   // ================= SYSTEM DATA INTEGRATION =================
   const { 
     culturalItems: rawCulturalItems = [], 
-    unreadCount: unreadNotifications 
   } = useSystemData("user");
 
   // Filter local state dependencies cleanly using useMemo to mirror native status targets
   const items = useMemo(() => {
     return rawCulturalItems.filter(item => item.status === "posted" && !item.isDeleted);
   }, [rawCulturalItems]);
+
+  // ================= REAL-TIME NOTIFICATION LISTENER =================
+  // 1. Create the state for the badge
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  // 2. Add the real-time listener (WITH LOGS)
+  useEffect(() => {
+    if (!auth.currentUser) {
+      console.log("🔔 [Notif] No user is logged in yet.");
+      return;
+    }
+    const userId = auth.currentUser.uid;
+    console.log("🔔 [Notif] Listening for user ID:", userId);
+
+    let directCount = 0;
+    let roleCount = 0;
+
+    const qDirect = query(
+      collection(db, "notifications"), 
+      where("userId", "==", userId), 
+      where("read", "==", false)
+    );
+
+    const qRole = query(
+      collection(db, "notifications"), 
+      where("targetRole", "==", "user")
+    );
+
+    const unsubDirect = onSnapshot(qDirect, (snap) => {
+      console.log("🔔 [Notif] Direct Messages found:", snap.size);
+      snap.forEach(doc => console.log("   -> Direct Doc Data:", doc.data()));
+      directCount = snap.size;
+      setUnreadNotifications(directCount + roleCount);
+    });
+
+    const unsubRole = onSnapshot(qRole, (snap) => {
+      console.log("🔔 [Notif] Role Broadcasts found:", snap.size);
+      roleCount = snap.docs.filter(doc => {
+        const data = doc.data();
+        const unread = !data.isReadBy || !data.isReadBy.includes(userId);
+        if (unread) console.log("   -> Unread Broadcast Data:", data);
+        return unread;
+      }).length;
+      setUnreadNotifications(directCount + roleCount);
+    });
+
+    return () => {
+      unsubDirect();
+      unsubRole();
+    };
+  }, [auth.currentUser]);
+
+  // Log the final number being sent to your UI
+  useEffect(() => {
+    console.log("🔔 [Notif] Final Unread Badge Count:", unreadNotifications);
+  }, [unreadNotifications]);
 
   // Core Data States (Kept local as they map exclusively to this user configuration)
   const [bookmarks, setBookmarks] = useState([]);

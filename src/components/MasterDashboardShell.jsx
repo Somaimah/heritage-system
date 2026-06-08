@@ -69,6 +69,11 @@ const MasterDashboardShell = ({
           
           {sidebarLinks.map((link) => {
             const isActive = activeTab === link.value;
+            
+            // --- STEP 5: Check if this is the user's notification sidebar option ---
+            const isNotificationTab = link.value === "notifications" || link.label?.toLowerCase().includes("notif");
+            const showRedPingOnSidebar = isStandardUser && isNotificationTab && notificationCount > 0;
+
             return (
               <button 
                 key={link.value}
@@ -81,12 +86,30 @@ const MasterDashboardShell = ({
                   {React.cloneElement(link.icon, { 
                     className: isActive ? "text-[#E09F26]" : "text-white/50 group-hover:text-white" 
                   })}
-                  <span>{link.label}</span>
+                  
+                  <span className="flex items-center gap-1.5">
+                    {link.label}
+                    {/* STEP 5: Animated red ping sign right on the notification text name */}
+                    {showRedPingOnSidebar && (
+                      <span className="flex h-2 w-2 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                      </span>
+                    )}
+                  </span>
                 </div>
-                {link.badge !== undefined && (
+
+                {/* Show standard badge if specified, otherwise append notification counter for user role */}
+                {link.badge !== undefined ? (
                   <span className={`text-[10px] px-2 py-0.5 rounded-md font-mono ${isActive ? "bg-[#E09F26] text-[#4A0C16]" : "bg-white/10 text-white/60"}`}>
                     {link.badge}
                   </span>
+                ) : (
+                  showRedPingOnSidebar && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-md font-mono bg-red-500 text-white shadow-sm animate-pulse">
+                      {notificationCount}
+                    </span>
+                  )
                 )}
               </button>
             );

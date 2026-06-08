@@ -7,9 +7,10 @@ import {
   onSnapshot,
   updateDoc,
   doc,
-  getDoc
+  getDoc,
+  writeBatch // <-- Added for Step 6
 } from "firebase/firestore";
-import { ArrowLeft, Bell, Clock, Loader2, BellRing } from "lucide-react";
+import { ArrowLeft, Bell, Clock, Loader2, BellRing, CheckCheck } from "lucide-react"; // <-- Added CheckCheck for the button
 import okirPattern from "../assets/okir-pattern.png";
 
 const NotificationsPage = ({ changePage, params }) => {
@@ -31,7 +32,20 @@ const NotificationsPage = ({ changePage, params }) => {
         // A. Find out what role the current user is
         const userRef = doc(db, "users", auth.currentUser.uid);
         const userSnap = await getDoc(userRef);
-        const userRole = userSnap.exists() ? userSnap.data().role?.toLowerCase() : "user";
+        const userData = userSnap.exists() ? userSnap.data() : {};
+        const userRole = userData.role?.toLowerCase() || "user";
+
+        const firestoreCreatedAt = userData.createdAt?.toMillis ? userData.createdAt.toMillis() : 0;
+        const authCreatedAt = auth.currentUser.metadata.creationTime ? new Date(auth.currentUser.metadata.creationTime).getTime() : 0;
+        const userCreatedAtMillis = firestoreCreatedAt || authCreatedAt;
+
+        // Helper filter to hide old messages from new users, but keep history for old users
+        const isNotifValidForUser = (n) => {
+          if (!userCreatedAtMillis) return true; // Old accounts see everything
+          if (!n.createdAt) return true; // Brand new incoming notification is always visible
+          const notifTime = n.createdAt.toMillis ? n.createdAt.toMillis() : (n.createdAt.seconds * 1000 || 0);
+          return notifTime >= (userCreatedAtMillis - 60000); // Only show if created AFTER registration (with a 1 min buffer)
+        };
 
         // B. Listen for Direct Messages (Specific to this user's UID)
         const qDirect = query(
@@ -39,7 +53,9 @@ const NotificationsPage = ({ changePage, params }) => {
           where("userId", "==", auth.currentUser.uid)
         );
         unsubDirect = onSnapshot(qDirect, (snapshot) => {
-          const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const notifs = snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(isNotifValidForUser); // <-- Step 4 filter applied here safely
           setDirectNotifs(notifs);
         });
 
@@ -50,7 +66,9 @@ const NotificationsPage = ({ changePage, params }) => {
             where("targetRole", "==", userRole)
           );
           unsubRole = onSnapshot(qRole, (snapshot) => {
-            const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const notifs = snapshot.docs
+              .map(doc => ({ id: doc.id, ...doc.data() }))
+              .filter(isNotifValidForUser); // <-- Step 4 filter applied here safely
             setRoleNotifs(notifs);
           });
         }
@@ -101,6 +119,44 @@ const NotificationsPage = ({ changePage, params }) => {
     }
   };
 
+  // ================= 4. STEP 6: MARK ALL AS READ BATCH =================
+  const markAllAsRead = async () => {
+    try {
+      const myUid = auth.currentUser?.uid;
+      if (!myUid) return;
+      
+      const batch = writeBatch(db);
+      let hasUpdates = false;
+
+      allNotifications.forEach((n) => {
+        const isRead = n.userId 
+          ? (n.read === true || n.read === "true")
+          : (Array.isArray(n.isReadBy) && n.isReadBy.includes(myUid));
+
+        if (!isRead) {
+          const docRef = doc(db, "notifications", n.id);
+          if (n.userId) {
+            batch.update(docRef, { read: true });
+          } else {
+            const currentReadBy = Array.isArray(n.isReadBy) ? n.isReadBy : [];
+            batch.update(docRef, { isReadBy: [...currentReadBy, myUid] });
+          }
+          hasUpdates = true;
+        }
+      });
+
+      if (hasUpdates) await batch.commit();
+    } catch (err) {
+      console.error("Error marking all read:", err);
+    }
+  };
+
+  const hasUnread = allNotifications.some((n) => {
+    return n.userId 
+      ? !(n.read === true || n.read === "true")
+      : !(Array.isArray(n.isReadBy) && n.isReadBy.includes(auth.currentUser?.uid));
+  });
+
   return (
     <div className="min-h-screen bg-[#FEF9C3] text-gray-800 font-sans antialiased flex flex-col pb-20 animate-fadeIn">
       
@@ -123,6 +179,17 @@ const NotificationsPage = ({ changePage, params }) => {
           </div>
           
           <div className="flex items-center gap-4">
+            {/* STEP 6: Mark All Read Button */}
+            {hasUnread && (
+              <button
+                onClick={markAllAsRead}
+                className="bg-[#E09F26]/20 hover:bg-[#E09F26]/40 border border-[#E09F26]/30 text-[#E09F26] hover:text-white px-3 py-2 rounded-xl flex items-center gap-2 font-bold transition duration-300 text-sm shadow-sm"
+              >
+                <CheckCheck size={18} /> 
+                <span className="hidden sm:inline">Mark All Read</span>
+              </button>
+            )}
+
             <button
               onClick={() => changePage(backDestination)}
               className="bg-white/10 hover:bg-white/20 border border-white/10 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-medium transition duration-300 text-sm"

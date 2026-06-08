@@ -181,10 +181,12 @@ const UploadPage = ({ changePage, editItem }) => {
 
         try {
           await notifyRole({
-            role: "moderator",
+            role: "moderator", 
+            targetRole: "moderator", // Ensure alignment with new standard
             message: `Item resubmitted by encoder: ${title}`,
             type: "upload",
-            itemId: editItem.id
+            itemId: editItem.id,
+            isReadBy: [] // Force unread state for the badge
           });
         } catch (notifError) {
           console.log("Notification failed:", notifError);
@@ -202,9 +204,11 @@ const UploadPage = ({ changePage, editItem }) => {
         try {
           await notifyRole({
             role: "moderator",
+            targetRole: "moderator", // Ensure alignment with new standard
             message: `New item uploaded: ${title}`,
             type: "upload",
-            itemId: docRef.id
+            itemId: docRef.id,
+            isReadBy: [] // Force unread state for the badge
           });
         } catch (notifError) {
           console.log("Notification failed:", notifError);

@@ -1,7 +1,6 @@
 import { doc, getDoc, setDoc, deleteDoc, updateDoc, increment, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase/firebase";
 
-// 1. Handle Status Changes & Auto-Notifications
 export const handleStatusUpdate = async (item, targetCollection, newStatus, feedback, role) => {
   const updateData = {
     status: newStatus,
@@ -14,10 +13,9 @@ export const handleStatusUpdate = async (item, targetCollection, newStatus, feed
 
   await updateDoc(doc(db, targetCollection, item.id), updateData);
 
-  // Use a fallback name so it works for Items (title) or Proverbs (proverb)
   const itemName = item.title || item.proverb || item.term || "Entry";
 
-  // Notify Encoder
+  // 1. Notify the original creator (Encoder/User)
   const encoderId = item.encoderId || item.createdBy;
   if (encoderId) {
     await setDoc(doc(collection(db, "notifications")), {
@@ -30,11 +28,21 @@ export const handleStatusUpdate = async (item, targetCollection, newStatus, feed
     });
   }
 
-  // Notify Admin on Validation
+  // 2. NEW: Notify ALL USERS when a new item is POSTED
+  if (newStatus === "posted") {
+    await setDoc(doc(collection(db, "notifications")), {
+      targetRole: "user", // This matches the query in your UserDashboard!
+      message: `A new item "${itemName}" has been added to the collection!`,
+      itemId: item.id,
+      createdAt: serverTimestamp(),
+      isReadBy: [] // This starts empty so everyone sees it as unread
+    });
+  }
+
+  // 3. Notify Admin on Validation
   if (role === "moderator" && newStatus === "validated") {
     await setDoc(doc(collection(db, "notifications")), {
       targetRole: "admin",
-      role: "admin",
       message: `Review required: Moderator validated "${itemName}".`,
       itemId: item.id,
       type: "validation_request",

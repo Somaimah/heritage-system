@@ -63,17 +63,27 @@ const App = () => {
   // ================= UNIFIED GLOBAL LOGOUT ACTIONS =================
   const handleGlobalLogout = async () => {
     try {
+      // 1. Reset Language
       await i18n.changeLanguage('en');
       localStorage.removeItem('i18nextLng');
       
-      sessionStorage.removeItem("saved_page");
-      sessionStorage.removeItem("saved_page_data");
+      // 2. Clear ALL session data (This wipes the 'saved_page' AND any tab states in the dashboards)
+      sessionStorage.clear(); 
+      
+      // 3. Clear specific registration flags
+      localStorage.removeItem("isRegistering");
+
+      // 4. Force state to landing to ensure no re-saves happen
+      setPage("landing");
+      pageRef.current = "landing";
       
       setIsLogoutModalOpen(false);
+      
+      // 5. Sign out from Firebase
       await signOut(auth);
       
-      changePage("landing");
-      window.location.reload();
+      // 6. HARD RESET: This forces the browser to dump all memory and reload from scratch
+      window.location.replace("/"); 
     } catch (err) {
       console.error("Global Logout error:", err);
     }
@@ -85,7 +95,6 @@ const App = () => {
 
   // ================= SECURE ROUTE & SESSION KEEP ALIVE =================
   useEffect(() => {
-    // We tracks initial connection pass before executing state-wiping fallbacks
     let isInitialAuthCheck = true;
 
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -93,8 +102,6 @@ const App = () => {
         if (currentUser) {
           const isRegistering = localStorage.getItem("isRegistering");
           
-          // 🟢 FIX 1: Only pause auth if they are ACTUALLY on the register page.
-          // If they aren't, clean up the stale "isRegistering" flag so it doesn't break the refresh.
           if (pageRef.current === "register") {
             setLoading(false);
             isInitialAuthCheck = false;
@@ -103,12 +110,10 @@ const App = () => {
             localStorage.removeItem("isRegistering");
           }
 
-          // Fetch the user's role from the database
           const userDoc = await getDoc(doc(db, "users", currentUser.uid));
           setUser(currentUser);
           const userRole = userDoc.exists() ? userDoc.data().role : "user";
           
-          console.log("DEBUG: Current User Email:", currentUser.email, "| Role from DB:", userRole);
           setRole(userRole);
 
           if (pageRef.current === "landing" || pageRef.current === "login") {
@@ -118,8 +123,6 @@ const App = () => {
           setUser(null);
           setRole("guest");
           
-          // 🟢 FIX 2: During the very first check on reload, do NOT clear out the secure page 
-          // stored in sessionStorage until Firebase has officially finished evaluating the token.
           if (!isInitialAuthCheck) {
             if (!["register", "login", "overview", "landing"].includes(pageRef.current)) {
               changePage("landing");
@@ -129,8 +132,6 @@ const App = () => {
       } catch (error) {
         console.error("Auth Listener Error:", error);
         
-        // 🟢 FIX 3: If Firestore fails on refresh (network blip or rule delay), 
-        // DO NOT log the user out. Fallback gracefully to keep their layout safe.
         if (currentUser) {
           setUser(currentUser);
           setRole("user"); 
@@ -151,7 +152,6 @@ const App = () => {
     return () => unsubscribe();
   }, []); 
 
-  // Early return comes AFTER all hooks
   if (loading) {
     return <Loader size="lg" />;
   }
@@ -171,7 +171,6 @@ const App = () => {
       {page === "register" && <Register goBackToLogin={() => changePage("login")} />}
       {page === "overview" && <Overview changePage={changePage} />}
       
-      {/* ✅ FIXED: Removed messy localStorage fallbacks in the JSX since pageData is synced perfectly! */}
       {page === "upload" && (
         <UploadPage changePage={changePage} editItem={pageData?.editItem} />
       )}
