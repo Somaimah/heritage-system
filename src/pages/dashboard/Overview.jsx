@@ -124,7 +124,7 @@ const Overview = ({ changePage }) => {
             <div>
               <h3 className="font-serif font-bold text-[#4A0C16] text-lg">Limited Preview Mode</h3>
               <p className="text-gray-600 text-sm leading-relaxed mt-1">
-                You are viewing a limited sample database containing up to 2 items per category. To search, view, and read the entire cultural collection without restrictions, please log in or create an account.
+                You are viewing a limited sample of cultural items. To search, view, and read the entire cultural collection without restrictions, please log in or create an account.
               </p>
             </div>
           </div>

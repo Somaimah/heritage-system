@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Search, BookOpen, History, Shield, ArrowRight } from "lucide-react";
 import Navbar from "../components/Navbar"; 
-import { useSystemData } from "../hooks/useSystemData"; // ✅ Integrated hook
+import { useSystemData } from "../hooks/useSystemData"; 
 
 // Hero Assets
 import mchcBuilding from "../assets/mchc-building.jpg";
@@ -10,7 +10,8 @@ import mchcBuilding3 from "../assets/mchc-building-3.jpg";
 import okirPattern from "../assets/okir-pattern.png";
 
 const LandingPage = ({ changePage }) => {
-  const { culturalItems } = useSystemData("guest"); // Using hook
+  const { culturalItems } = useSystemData("guest"); 
+  const [searchQuery, setSearchQuery] = useState("");
 
   // 1. Hero Slideshow State
   const heroImages = [mchcBuilding, mchcBuilding2, mchcBuilding3];
@@ -29,30 +30,13 @@ const LandingPage = ({ changePage }) => {
     return () => clearInterval(timer);
   }, [heroImages.length]);
 
-  // Fetch Featured Items from Firestore
-  useEffect(() => {
-    const fetchFeaturedItems = async () => {
-      try {
-        const q = query(
-          collection(db, "culturalItems"), 
-          where("isFeatured", "==", true),
-          where("status", "==", "posted")
-        );
-        
-        const querySnapshot = await getDocs(q);
-        const itemsList = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        
-        setFeaturedItems(itemsList);
-      } catch (error) {
-        console.error("Error fetching featured items:", error);
-      }
-    };
-
-    fetchFeaturedItems();
-  }, []);
+  // Handle Search Submission (Placeholder for future filtering)
+  const handleSearch = (e) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      changePage("overview"); // Later, you'll want to pass searchQuery here!
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#FEF9C3] animate-fadeIn flex flex-col">
@@ -82,23 +66,43 @@ const LandingPage = ({ changePage }) => {
               }`}
             />
           ))}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#4A0C16]/95 via-black/40 to-black/70" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#4A0C16]/95 via-black/50 to-black/70" />
         </div>
 
-        <div className="relative z-10 w-full h-full max-w-5xl mx-auto px-6 md:px-12 flex flex-col justify-end pt-20 pb-8 md:pb-12">
-          <div className="flex flex-col items-center text-center">
-            <p className="text-base md:text-xl text-white/90 mb-8 max-w-3xl mx-auto font-light tracking-wide leading-relaxed drop-shadow-md">
-              Explore, discover, and safeguard the rich historical archives, artifacts, and living traditions of the Meranaw people managed by Mindanao State University.
-            </p>
-            
-            <button
-              onClick={() => changePage("overview")}
-              className="group relative inline-flex items-center justify-center gap-3 bg-[#4A0C16] hover:bg-[#31080E] text-white font-sans text-base font-bold tracking-wider uppercase px-12 py-4 rounded-xl border-2 border-[#E09F26] transition-all duration-300 shadow-[0_0_25px_rgba(74,12,22,0.6)] hover:shadow-[0_0_35px_rgba(224,159,38,0.5)] hover:-translate-y-1"
+        <div className="relative z-10 w-full h-full max-w-5xl mx-auto px-6 md:px-12 flex flex-col justify-center items-center pt-20 pb-8 md:pb-12 text-center">
+          <h1 className="text-4xl md:text-6xl text-[#FDF5E6] font-serif font-bold mb-6 drop-shadow-lg">
+            Discover Meranaw Heritage
+          </h1>
+          <p className="text-base md:text-xl text-white/90 mb-10 max-w-3xl font-light tracking-wide leading-relaxed drop-shadow-md">
+            Explore, discover, and safeguard the rich historical archives, artifacts, and living traditions of the Meranaw people managed by Mindanao State University.
+          </p>
+          
+          {/* Global Search Bar */}
+          <form onSubmit={handleSearch} className="w-full max-w-2xl flex items-center mb-8 bg-white/10 backdrop-blur-md p-2 rounded-2xl border border-[#E09F26]/50 shadow-2xl">
+            <Search className="text-[#E09F26] ml-4 mr-2" size={24} />
+            <input 
+              type="text"
+              placeholder="Search artifacts, manuscripts, or traditions..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="flex-1 bg-transparent border-none outline-none text-white placeholder-white/60 text-lg px-2"
+            />
+            <button 
+              type="submit"
+              className="bg-[#4A0C16] hover:bg-[#31080E] text-white px-6 py-3 rounded-xl font-bold transition-colors"
             >
-              Explore Archive
-              <ArrowRight size={20} className="text-[#E09F26] transform group-hover:translate-x-1.5 transition-transform duration-200" />
+              Search
             </button>
-          </div>
+          </form>
+
+          {/* High-Contrast Gold Button */}
+          <button
+            onClick={() => changePage("overview")}
+            className="group relative inline-flex items-center justify-center gap-3 bg-[#E09F26] hover:bg-[#c98b1c] text-[#4A0C16] font-sans text-lg font-black tracking-wider uppercase px-12 py-4 rounded-xl transition-all duration-300 shadow-[0_0_25px_rgba(224,159,38,0.4)] hover:shadow-[0_0_35px_rgba(224,159,38,0.7)] hover:-translate-y-1"
+          >
+            Explore Archive
+            <ArrowRight size={20} className="text-[#4A0C16] transform group-hover:translate-x-1.5 transition-transform duration-200" />
+          </button>
         </div>
       </section>
 

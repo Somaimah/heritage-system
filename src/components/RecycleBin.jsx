@@ -76,15 +76,15 @@ const RecycleBin = ({ role, changePage }) => {
   const handlePermanentDelete = (item) => {
     setConfirmConfig({
       isOpen: true,
-      title: "Permanent Purge",
+      title: "Permanent Deletion",
       message: `WARNING: "${item.title || item.term}" will be permanently deleted. This cannot be undone. Proceed?`,
       type: "danger",
-      confirmText: "Purge Data",
+      confirmText: "Delete Data",
       onConfirm: async () => {
         setIsProcessing(true);
         try {
           await deleteDoc(doc(db, targetCollection, item.id));
-          showToast("Record permanently purged from system.", "success");
+          showToast("Record permanently deleted from system.", "success");
         } catch (err) {
           showToast("Critical Error: Could not delete record. " + err.message, "error");
         } finally {

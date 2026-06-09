@@ -58,14 +58,14 @@ const MasterDashboardShell = ({
             </div>
             <div>
               <h1 className="text-sm font-bold tracking-wide font-serif text-[#FDF5E6] capitalize leading-tight">{userRole} Workspace</h1>
-              <p className="text-[9px] tracking-widest text-[#E09F26] uppercase font-bold leading-none mt-0.5">System Repository</p>
+              <p className="text-[9px] tracking-widest text-[#E09F26] uppercase font-bold leading-none mt-0.5">Digital Archive</p>
             </div>
           </div>
         </div>
 
         {/* Sidebar Links */}
         <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-          <p className="text-[10px] text-[#E09F26] uppercase tracking-widest font-extrabold px-3 mb-3">Repository Filters</p>
+          <p className="text-[10px] text-[#E09F26] uppercase tracking-widest font-extrabold px-3 mb-3">Collection Filters</p>
           
           {sidebarLinks.map((link) => {
             const isActive = activeTab === link.value;

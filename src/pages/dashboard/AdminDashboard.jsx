@@ -314,16 +314,16 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     if (isSubmitting) return;
     setConfirmConfig({
       isOpen: true,
-      title: "Permanent Purge",
+      title: "Permanent Deletion",
       message: "WARNING: This action is absolute. This record will be permanently wiped from the database clusters.",
       type: "danger",
-      confirmText: "Purge Data",
+      confirmText: "Delete Data",
       onConfirm: async () => {
         setIsSubmitting(true);
         try {
           const collectionName = binFilter === "cultural" ? "culturalItems" : "proverb";
           await deleteDoc(doc(db, collectionName, itemId));
-          showToast("Data permanently purged from system.", "success");
+          showToast("Data permanently deleted from system.", "success");
         } catch (err) {
           showToast(err.message, "error");
         } finally {
@@ -812,7 +812,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
               <div>
                 <h2 className="text-xl font-bold text-[#4A0C16] font-serif">Recycle Bin</h2>
-                <p className="text-xs text-gray-500">Restore or permanently purge deleted records</p>
+                <p className="text-xs text-gray-500">Restore or permanently remove deleted records</p>
               </div>
               
               <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
@@ -893,7 +893,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
                         className="bg-red-50 hover:bg-red-600 hover:text-white text-red-600 py-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1 disabled:opacity-50"
                       >
                         {isSubmitting ? <Loader2 size={10} className="animate-spin" /> : <AlertTriangle size={10} />}
-                        Purge
+                        Delete
                       </button>
                     </div>
                   </div>
