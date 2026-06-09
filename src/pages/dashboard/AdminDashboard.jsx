@@ -217,6 +217,56 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
 
   // ================= ACTION HANDLERS =================
 
+  const handleGenerateReport = async () => {
+    try {
+      const date = new Date().toLocaleDateString();
+      
+      // 1. HEADER & SUMMARY SECTION
+      let csv = "MSU-MCHC SYSTEM REPOSITORY REPORT\n";
+      csv += `Generated on: ${date}\n\n`;
+      
+      csv += "--- SYSTEM SUMMARY ---\n";
+      csv += `Total Active Cultural Items, ${activeItems.length}\n`;
+      csv += `Total Published Proverbs, ${publishedProverbs.length}\n`;
+      csv += `Total Registered Users, ${users.length}\n`;
+      csv += `Items in Recycle Bin, ${binnedCulturalItems.length + binnedProverbs.length}\n`;
+      csv += `Total Overall Records, ${items.length + publishedProverbs.length + binnedProverbs.length}\n\n`;
+
+      // 2. DETAILED INVENTORY TABLE
+      csv += "--- DETAILED ITEM INVENTORY ---\n";
+      csv += "Type,Item ID,Title/Proverb,Category,Status,Date Added\n";
+
+      // Add Cultural Items
+      activeItems.forEach((item) => {
+        const title = item.title ? `"${item.title.replace(/"/g, '""')}"` : '"Untitled"';
+        const dateAdded = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString() : "N/A";
+        csv += `Artifact,${item.id},${title},${item.category || "N/A"},${item.status},${dateAdded}\n`;
+      });
+
+      // Add Proverbs
+      publishedProverbs.forEach((p) => {
+        const text = p.proverb ? `"${p.proverb.replace(/"/g, '""')}"` : '"Untitled"';
+        const dateAdded = p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : "N/A";
+        csv += `Proverb,${p.id},${text},Proverb,posted,${dateAdded}\n`;
+      });
+
+      // 3. DOWNLOAD LOGIC
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `MCHC_Full_System_Report_${date.replace(/\//g, '-')}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      showToast("Full system report exported!", "success");
+    } catch (error) {
+      console.error(error);
+      showToast("Report generation failed.", "error");
+    }
+  };
+
   const handleDeleteItem = (itemId, collectionName = "culturalItems") => {
     if (isSubmitting) return;
     setConfirmConfig({
@@ -513,11 +563,24 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
 
       {/* 🖥️ CENTRAL RENDERING ENGINE */}
       <div className="min-h-[400px]">
-        
-        {/* TAB: ANALYTICS MATRIX */}
+      
         {/* TAB: ANALYTICS MATRIX */}
         {tab === "analytics" && (
           <div className="space-y-8 animate-fadeIn">
+            {/* NEW: Action Bar for Analytics */}
+            <div className="flex justify-between items-center bg-white p-4 rounded-3xl border border-[#E09F26]/15 shadow-sm">
+              <div>
+                <h3 className="text-lg font-bold text-[#4A0C16] font-serif">Management Reports</h3>
+                <p className="text-xs text-gray-500">Download comprehensive system data for official documentation.</p>
+              </div>
+              <button 
+                onClick={handleGenerateReport}
+                className="flex items-center gap-2 px-6 py-3 bg-[#107C41] text-white text-sm font-bold rounded-2xl hover:bg-[#0b5c30] transition-all shadow-md hover:shadow-lg active:scale-95"
+              >
+                <RefreshCw size={16} className="animate-spin-slow" />
+                Generate Full System Report (.csv)
+              </button>
+            </div>
             <div className="grid lg:grid-cols-2 gap-6">
               <div className="bg-white rounded-3xl p-6 shadow-[0_4px_25px_rgba(74,12,22,0.01)] border border-[#E09F26]/15 relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">

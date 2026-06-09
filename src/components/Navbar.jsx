@@ -11,7 +11,7 @@ const Navbar = ({ changePage }) => {
       
       {/* LEFT SIDE: Institutional Branding */}
       <div 
-        className="flex items-center gap-3 z-10 bg-transparent px-4 py-2 rounded-xl cursor-pointer"
+        className="flex items-center gap-3 z-10 bg-transparent px-4 py-2 rounded-xl cursor-pointer hover:opacity-90 transition-opacity"
         onClick={() => changePage("landing")}
       >
         <BookOpen className="w-8 h-8 text-[#E09F26]" />
@@ -26,33 +26,42 @@ const Navbar = ({ changePage }) => {
       </div>
 
       {/* RIGHT SIDE: Navigation & Action Buttons */}
-      <div className="flex items-center gap-4 z-10 bg-transparent px-5 py-2.5 rounded-xl h-auto">
+      <div className="flex items-center gap-6 z-10 bg-transparent px-5 py-2.5 rounded-xl h-auto">
         
-        {/* If user is logged in, show Dashboard button. Otherwise, show Login/Register */}
-        {currentUser ? (
-          <button
-            onClick={() => changePage("dashboard")}
-            className="px-6 py-2 bg-[#E09F26] text-white font-bold rounded-lg hover:bg-[#C88A21] hover:shadow-md transition-all active:scale-95 text-sm uppercase tracking-wide"
-          >
-            Go to Dashboard
-          </button>
-        ) : (
-          <>
-            <button
-              onClick={() => changePage("login")}
-              className="px-6 py-2 bg-white text-[#4A0C16] font-bold rounded-lg hover:bg-gray-100 hover:shadow-md transition-all active:scale-95 text-sm uppercase tracking-wide"
-            >
-              Login
-            </button>
-            <button
-              onClick={() => changePage("register")}
-              className="px-6 py-2 bg-[#E09F26] text-white font-bold rounded-lg hover:bg-[#C88A21] hover:shadow-md transition-all active:scale-95 text-sm uppercase tracking-wide"
-            >
-              Register
-            </button>
-          </>
-        )}
+        {/* NEW: Institutional Link */}
+        <button
+          onClick={() => changePage("about-mchc")}
+          className="text-white/90 hover:text-[#E09F26] font-semibold text-sm uppercase tracking-widest transition-colors hidden md:block"
+        >
+          The Center
+        </button>
 
+        <div className="flex items-center gap-4">
+          {/* If user is logged in, show Dashboard button. Otherwise, show Login/Register */}
+          {currentUser ? (
+            <button
+              onClick={() => changePage("dashboard")}
+              className="px-6 py-2 bg-[#E09F26] text-[#4A0C16] font-bold rounded-lg hover:bg-[#C88A21] hover:shadow-md transition-all active:scale-95 text-sm uppercase tracking-wide"
+            >
+              Go to Dashboard
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => changePage("login")}
+                className="px-6 py-2 bg-white/10 text-white border border-white/20 font-bold rounded-lg hover:bg-white hover:text-[#4A0C16] hover:shadow-md transition-all active:scale-95 text-sm uppercase tracking-wide"
+              >
+                Login
+              </button>
+              <button
+                onClick={() => changePage("register")}
+                className="px-6 py-2 bg-[#E09F26] text-[#4A0C16] font-bold rounded-lg hover:bg-[#C88A21] hover:shadow-md transition-all active:scale-95 text-sm uppercase tracking-wide"
+              >
+                Register
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </nav>
   );

@@ -28,6 +28,7 @@ import NotificationsPage from "./pages/NotificationsPage";
 import BookmarkPage from "./pages/BookmarkPage";
 import ProverbPosted from "./pages/proverbs/ProverbPosted";
 import ProverbDetailPage from "./pages/proverbs/ProverbDetailPage";
+import AboutMCHC from "./pages/AboutMCHC";
 
 // Lucide icon for the unified confirmation modal
 import { LogOut } from "lucide-react";
@@ -167,6 +168,7 @@ const App = () => {
       )}
       
       {page === "landing" && <LandingPage changePage={changePage} />}
+      {page === "about-mchc" && <AboutMCHC changePage={changePage} />}
       {page === "login" && <Login goToRegister={() => changePage("register")} goBack={() => changePage("landing")} />}
       {page === "register" && <Register goBackToLogin={() => changePage("login")} />}
       {page === "overview" && <Overview changePage={changePage} />}
@@ -207,7 +209,7 @@ const App = () => {
         </>
       )}
 
-      {!["notifications", "proverb", "proverbdetail", "bookmarks", "landing", "login", "register", "overview", "upload", "uploadProverb", "itemdetail", "dashboard"].includes(page) && (
+      {!["notifications", "proverb", "proverbdetail", "bookmarks", "landing", "about-mchc", "login", "register", "overview", "upload", "uploadProverb", "itemdetail", "dashboard"].includes(page) && (
         <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-center p-4">
           <h1 className="text-4xl font-bold text-[#4A0C16] mb-2">Error: Page not found</h1>
           <p className="text-gray-500 mb-6 font-medium">It looks like the system got lost.</p>
