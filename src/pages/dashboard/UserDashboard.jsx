@@ -13,13 +13,14 @@ import {
   serverTimestamp,
   addDoc,
   query,
-  where // ✅ Added 'where' explicitly here
+  where,
+  getDocs
 } from "firebase/firestore";
 
 import {
   BookOpen, Bell, Bookmark, Search,
   ChevronLeft, ChevronRight, Sparkles, MessageSquare, 
-  HelpCircle, AlertTriangle, Lightbulb, X, Loader2, LayoutDashboard, Quote
+  HelpCircle, AlertTriangle, Lightbulb, X, Loader2, LayoutDashboard, Quote, Star
 } from "lucide-react";
 
 import MasterDashboardShell from "../../components/MasterDashboardShell";
@@ -27,9 +28,15 @@ import okirPattern from "../../assets/okir-pattern.png";
 
 // Shared Universal Component for the Proverb Grid View
 import ProverbPosted from "../proverbs/ProverbPosted";
-import { useSystemData } from "../../hooks/useSystemData"; // Adjusted for unified data layer
+import { useSystemData } from "../../hooks/useSystemData";
 
-const UserDashboard = ({ user, changePage, triggerLogout }) => {
+const UserDashboard = ({ 
+  user, 
+  changePage, 
+  triggerLogout, 
+  starredProverbs = [], 
+  onToggleStar 
+}) => {
   const { t } = useTranslation();
   const { showToast } = useToast();
 
@@ -41,6 +48,48 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
   const [search, setSearch] = useState(() => {
     return sessionStorage.getItem("userSearch") || "";
   });
+
+  const [popularKeywords, setPopularKeywords] = useState([]);
+
+  useEffect(() => {
+    const fetchPopularSearches = async () => {
+      try {
+        const analyticsRef = collection(db, 'search_analytics');
+        const querySnapshot = await getDocs(analyticsRef);
+        const wordCounts = {};
+
+        querySnapshot.docs.forEach((doc) => {
+          const data = doc.data();
+          const rawTerm = data.term || data.searchTerm || data.query || data.keyword || data.text;
+
+          if (rawTerm && typeof rawTerm === 'string') {
+            const cleanedTerm = rawTerm.trim().toLowerCase();
+            if (cleanedTerm.length > 1) {
+              const countToAdd = typeof data.count === 'number' ? data.count : 1;
+              wordCounts[cleanedTerm] = (wordCounts[cleanedTerm] || 0) + countToAdd;
+            }
+          }
+        });
+
+        const sortedTrends = Object.entries(wordCounts)
+          .sort((a, b) => b[1] - a[1])
+          .map(([word]) => word);
+
+        const topTrends = sortedTrends.slice(0, 5);
+
+        if (topTrends.length > 0) {
+          setPopularKeywords(topTrends);
+        } else {
+          setPopularKeywords(['Okir', 'Kandit', 'Singkil', 'Torogan']);
+        }
+      } catch (error) {
+        console.error("Error computing search trends:", error);
+        setPopularKeywords(['Okir', 'Kandit', 'Singkil', 'Torogan']);
+      }
+    };
+
+    fetchPopularSearches();
+  }, []);
 
   const [category, setCategory] = useState(() => {
     return sessionStorage.getItem("userCategory") || "all";
@@ -67,14 +116,11 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     sessionStorage.setItem("userSortBy", sortBy);
   }, [sortBy]);
 
-  // ================= SEARCH ANALYTICS TRACKER (DEBOUNCED) =================
+  // ================= SEARCH ANALYTICS TRACKER =================
   useEffect(() => {
     const cleanSearch = search.trim().toLowerCase();
-    
-    // Only track if the word is at least 3 letters long
     if (!cleanSearch || cleanSearch.length < 3) return;
 
-    // Debounce: Wait 1.5 seconds after typing stops
     const debounceTimer = setTimeout(async () => {
       try {
         await addDoc(collection(db, "search_analytics"), {
@@ -83,7 +129,6 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
           categoryScope: category || "all",
           timestamp: serverTimestamp()
         });
-        console.log("Search tracked successfully!"); // Optional: just so you can see it work in your console
       } catch (error) {
         console.error("Search Tracking Error:", error);
       }
@@ -93,27 +138,18 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
   }, [search, category, user?.uid]);
 
   // ================= SYSTEM DATA INTEGRATION =================
-  const { 
-    culturalItems: rawCulturalItems = [], 
-  } = useSystemData("user");
+  const { culturalItems: rawCulturalItems = [] } = useSystemData("user");
 
-  // Filter local state dependencies cleanly using useMemo to mirror native status targets
   const items = useMemo(() => {
     return rawCulturalItems.filter(item => item.status === "posted" && !item.isDeleted);
   }, [rawCulturalItems]);
 
   // ================= REAL-TIME NOTIFICATION LISTENER =================
-  // 1. Create the state for the badge
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
-  // 2. Add the real-time listener (WITH LOGS)
   useEffect(() => {
-    if (!auth.currentUser) {
-      console.log("🔔 [Notif] No user is logged in yet.");
-      return;
-    }
+    if (!auth.currentUser) return;
     const userId = auth.currentUser.uid;
-    console.log("🔔 [Notif] Listening for user ID:", userId);
 
     let directCount = 0;
     let roleCount = 0;
@@ -130,19 +166,14 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     );
 
     const unsubDirect = onSnapshot(qDirect, (snap) => {
-      console.log("🔔 [Notif] Direct Messages found:", snap.size);
-      snap.forEach(doc => console.log("   -> Direct Doc Data:", doc.data()));
       directCount = snap.size;
       setUnreadNotifications(directCount + roleCount);
     });
 
     const unsubRole = onSnapshot(qRole, (snap) => {
-      console.log("🔔 [Notif] Role Broadcasts found:", snap.size);
       roleCount = snap.docs.filter(doc => {
         const data = doc.data();
-        const unread = !data.isReadBy || !data.isReadBy.includes(userId);
-        if (unread) console.log("   -> Unread Broadcast Data:", data);
-        return unread;
+        return !data.isReadBy || !data.isReadBy.includes(userId);
       }).length;
       setUnreadNotifications(directCount + roleCount);
     });
@@ -153,30 +184,28 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     };
   }, [auth.currentUser]);
 
-  // Log the final number being sent to your UI
-  useEffect(() => {
-    console.log("🔔 [Notif] Final Unread Badge Count:", unreadNotifications);
-  }, [unreadNotifications]);
-
-  // Core Data States (Kept local as they map exclusively to this user configuration)
+  // Core Data States
   const [bookmarks, setBookmarks] = useState([]);
-  const [starredProverbs, setStarredProverbs] = useState([]); 
   const [word, setWord] = useState(null);
 
   // UI States
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 25;
-
-  // Interactivity States
   const [brokenImages, setBrokenImages] = useState({});
 
-  // System Feedback States
+  // ================= MODERATOR FEEDBACK MODAL STATES =================
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [feedbackType, setFeedbackType] = useState("General Comment");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 
-  // Confirmation Modal State
+  // ================= TIMED ADMIN RATING MODAL STATES =================
+  const [isRatingModalOpen, setIsRatingModalOpen] = useState(false);
+  const [ratingStars, setRatingStars] = useState(0);
+  const [hoverStars, setHoverStars] = useState(0);
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
+
+  // Universal Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: "",
@@ -187,27 +216,20 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
   // Profile Resolution State
   const [databaseName, setDatabaseName] = useState("");
 
-  // ================= UTILITIES =================
   const handleImageError = (id) => {
     setBrokenImages(prev => ({ ...prev, [id]: true }));
   };
 
   useEffect(() => {
     if (!user?.uid) return;
-
     const userDocRef = doc(db, "users", user.uid);
     const unsub = onSnapshot(userDocRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         const foundName = data.name || data.fullName || data.displayName || data.firstName || data.username;
-        if (foundName) {
-          setDatabaseName(foundName);
-        }
+        if (foundName) setDatabaseName(foundName);
       }
-    }, (error) => {
-      console.error("Profile extraction listener error:", error);
     });
-
     return () => unsub();
   }, [user?.uid]);
 
@@ -216,45 +238,42 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     if (user?.name) return user.name;
     if (user?.displayName) return user.displayName;
     if (auth.currentUser?.displayName) return auth.currentUser.displayName;
-    
     const targetEmail = user?.email || auth.currentUser?.email || "";
     return targetEmail ? targetEmail.split("@")[0] : "User";
   }, [user, databaseName]);
 
-  // ================= LOCAL AD-HOC DATA FETCHING =================
+  // ================= TIMED RATING PROMPT CHECKER (LOCALSTORAGE) =================
+  useEffect(() => {
+    const hasRated = localStorage.getItem("hasRatedSystem");
+    const neverAsk = localStorage.getItem("neverAskRating");
+    const snoozeUntil = localStorage.getItem("snoozeRatingUntil");
+    const now = Date.now();
 
-  // 1. Bookmarks Listener (For Cultural Items mapped to this specific user)
+    if (hasRated === "true" || neverAsk === "true" || (snoozeUntil && now < parseInt(snoozeUntil))) {
+      return;
+    }
+
+    // Trigger rating modal after 10 minutes (600,000 ms) of active usage
+    const ratingTimer = setTimeout(() => {
+      setIsRatingModalOpen(true);
+    }, 10 * 60 * 1000);
+
+    return () => clearTimeout(ratingTimer);
+  }, []);
+
+  // Sync Bookmarks & Word of the Day
   useEffect(() => {
     if (!user?.uid) return;
-    
     const bookmarksQuery = query(collection(db, "bookmarks"), where("userId", "==", user.uid));
-    
     const unsub = onSnapshot(bookmarksQuery, (snap) => {
       setBookmarks(snap.docs.map(doc => doc.data().itemId));
-    }, (err) => console.error("Bookmarks sync error:", err));
-    
+    });
     return () => unsub();
   }, [user?.uid]);
 
-  // 2. Starred Proverbs Listener
-  useEffect(() => {
-    if (!user?.uid) return;
-    
-    const starredQuery = query(collection(db, "starredProverbs"), where("userId", "==", user.uid));
-    
-    const unsub = onSnapshot(starredQuery, (snap) => {
-      setStarredProverbs(snap.docs.map(doc => doc.data().itemId));
-    }, (err) => console.error("Starred proverbs sync error:", err));
-    
-    return () => unsub();
-  }, [user?.uid]);
-
-  // 3. Word of the Day Listener
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "wordOfDay"), (snap) => {
-      if (!snap.empty) {
-        setWord(snap.docs[0].data());
-      }
+      if (!snap.empty) setWord(snap.docs[0].data());
     });
     return () => unsub();
   }, []);
@@ -263,10 +282,9 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     setCurrentPage(1);
   }, [search, category, sortBy, activeTab]);
 
-  // ================= PERFORMANCE MEMOIZATION =================
+  // Performance Memoization
   const filteredItems = useMemo(() => {
     const lowerSearch = search.toLowerCase().trim();
-    
     let result = items.filter(item => {
       const matchesSearch = 
         (item.title?.toLowerCase().includes(lowerSearch)) ||
@@ -280,9 +298,7 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     result.sort((a, b) => {
       if (sortBy === "a-z") return (a.title || "").localeCompare(b.title || "");
       if (sortBy === "z-a") return (b.title || "").localeCompare(a.title || "");
-      
       const getTime = (t) => t?.seconds ? t.seconds : (t?.toMillis ? t.toMillis() : 0);
-      
       if (sortBy === "oldest") return getTime(a.createdAt) - getTime(b.createdAt);
       return getTime(b.createdAt) - getTime(a.createdAt);
     });
@@ -306,7 +322,7 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // ================= MUTATIONS & ACTIONS =================
+  // Bookmark Toggle
   const toggleBookmark = async (item) => {
     try {
       const uid = user?.uid;
@@ -334,28 +350,7 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
     }
   };
 
-  const toggleStarProverb = async (item) => {
-    try {
-      const uid = user?.uid;
-      if (!uid) return;
-      
-      const starRef = doc(db, "starredProverbs", `${uid}_${item.id}`);
-      const isStarred = starredProverbs.includes(item.id);
-
-      if (isStarred) {
-        await deleteDoc(starRef);
-      } else {
-        await setDoc(starRef, {
-          userId: uid,
-          itemId: item.id,
-          createdAt: serverTimestamp()
-        });
-      }
-    } catch (err) {
-      console.error("Error starring proverb:", err);
-    }
-  };
-
+  // ================= MODERATOR FEEDBACK SUBMISSION =================
   const handleFeedbackSubmit = async (e) => {
     e.preventDefault();
     if (!feedbackMessage.trim()) {
@@ -374,17 +369,17 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
         createdAt: serverTimestamp(),
       });
 
-      await setDoc(doc(collection(db, "notifications")), {
+      await addDoc(collection(db, "notifications"), {
         targetRole: "moderator",
         role: "moderator", 
-        message: `${computedName} submitted new feedback: ${feedbackType}.`,
+        message: `${computedName} submitted new feedback (${feedbackType}).`,
         type: "user_feedback",
         createdAt: serverTimestamp(),
         read: false,
         isReadBy: []
       });
 
-      showToast(t('userDashboard.feedbackSuccess', 'Thank you! Your feedback has been sent.'), 'success');
+      showToast(t('userDashboard.feedbackSuccess', 'Thank you! Your report/feedback was sent to our moderators.'), 'success');
       setFeedbackMessage("");
       setFeedbackType("General Comment");
       setIsFeedbackModalOpen(false);
@@ -400,7 +395,7 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
       setConfirmModal({
         isOpen: true,
         title: t('userDashboard.confirmDiscardTitle', 'Discard Feedback?'),
-        message: t('userDashboard.confirmDiscardMessage', 'You have unsaved changes. Are you sure you want to discard your feedback?'),
+        message: t('userDashboard.confirmDiscardMessage', 'You have unsaved changes. Are you sure you want to discard your message?'),
         onConfirm: () => {
           setIsFeedbackModalOpen(false);
           setFeedbackMessage("");
@@ -411,6 +406,42 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
       setIsFeedbackModalOpen(false);
       setFeedbackMessage("");
     }
+  };
+
+  // ================= ADMIN SYSTEM RATING SUBMISSION & COOLDOWNS =================
+  const handleRatingSubmit = async () => {
+    if (ratingStars === 0) return;
+
+    setIsSubmittingRating(true);
+    try {
+      await addDoc(collection(db, "systemRatings"), {
+        userId: user?.uid || "anonymous",
+        userName: computedName,
+        userEmail: user?.email || "anonymous@msu.edu.ph",
+        rating: ratingStars,
+        createdAt: serverTimestamp()
+      });
+
+      localStorage.setItem("hasRatedSystem", "true");
+      setIsRatingModalOpen(false);
+      showToast(t('userDashboard.ratingSuccess', 'Thank you for rating our application!'), 'success');
+    } catch (error) {
+      console.error("Error submitting rating:", error);
+      showToast(t('userDashboard.ratingError', 'Could not save rating. Please try again.'), 'error');
+    } finally {
+      setIsSubmittingRating(false);
+    }
+  };
+
+  const handleSnoozeRating = (days = 7) => {
+    const snoozeTime = Date.now() + days * 24 * 60 * 60 * 1000;
+    localStorage.setItem("snoozeRatingUntil", snoozeTime.toString());
+    setIsRatingModalOpen(false);
+  };
+
+  const handleNeverAskRating = () => {
+    localStorage.setItem("neverAskRating", "true");
+    setIsRatingModalOpen(false);
   };
 
   const userSidebarLinks = [
@@ -478,29 +509,32 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
         {/* EXPLORER DASHBOARD VIEW (Cultural Items) */}
         {activeTab === "dashboard" && (
           <>
-            <div className="flex flex-col md:flex-row gap-4 mb-2">
-              <div className="relative flex-1 group">
-                <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#E09F26] transition-colors" size={20} />
-                <input 
-                  type="text" 
-                  placeholder={t('userDashboard.searchPlaceholder', 'Search by title, description, or tags...')} 
-                  value={search} 
-                  onChange={(e) => setSearch(e.target.value)} 
-                  className="w-full pl-14 pr-12 py-3.5 rounded-2xl border border-[#E09F26]/30 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-sm bg-white text-sm font-medium text-[#4A0C16] transition-all" 
-                />
-                {search && (
-                  <button 
-                    onClick={() => setSearch("")} 
-                    className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#4A0C16] transition-colors p-1"
-                    title="Clear search"
-                  >
-                    <X size={16} strokeWidth={3} />
-                  </button>
-                )}
-              </div>
-              
-              <div className="flex flex-col sm:flex-row gap-4 md:w-auto">
-                <div className="relative w-full sm:w-48">
+            <div className="space-y-3 mb-6">
+              <div className="flex flex-col sm:flex-row gap-4 items-center">
+                
+                {/* Search Input */}
+                <div className="relative flex-1 group w-full">
+                  <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#E09F26] transition-colors" size={20} />
+                  <input 
+                    type="text" 
+                    placeholder={t('userDashboard.searchPlaceholder', 'Search by title, description, or tags...')} 
+                    value={search} 
+                    onChange={(e) => setSearch(e.target.value)} 
+                    className="w-full pl-14 pr-12 py-3.5 rounded-2xl border border-[#E09F26]/30 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-sm bg-white text-sm font-medium text-[#4A0C16] transition-all" 
+                  />
+                  {search && (
+                    <button 
+                      onClick={() => setSearch("")} 
+                      className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#4A0C16] transition-colors p-1"
+                      title="Clear search"
+                    >
+                      <X size={16} strokeWidth={3} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Category Dropdown */}
+                <div className="relative w-full sm:w-56">
                   <select 
                     value={category} 
                     onChange={(e) => setCategory(e.target.value)} 
@@ -513,21 +547,37 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
                     <option value="Historical Records">{t('userDashboard.catHistorical', 'Historical Records')}</option>
                   </select>
                 </div>
-
-                <div className="relative w-full sm:w-48">
-                  <select 
-                    value={sortBy} 
-                    onChange={(e) => setSortBy(e.target.value)} 
-                    className="w-full px-5 py-3.5 rounded-2xl border border-[#E09F26]/30 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-sm bg-white cursor-pointer text-sm font-bold text-[#4A0C16] transition-all appearance-none uppercase tracking-wide"
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234A0C16'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1.25rem center', backgroundSize: '1.2em' }}
-                  >
-                    <option value="newest">{t('userDashboard.sortNewest', 'Newest First')}</option>
-                    <option value="oldest">{t('userDashboard.sortOldest', 'Oldest First')}</option>
-                    <option value="a-z">{t('userDashboard.sortAZ', 'Title A - Z')}</option>
-                    <option value="z-a">{t('userDashboard.sortZA', 'Title Z - A')}</option>
-                  </select>
-                </div>
               </div>
+
+              {/* Dynamic Keywords */}
+              {popularKeywords.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[#4A0C16]/70 px-1 pt-1">
+                  <span className="font-semibold text-gray-400 uppercase tracking-wider text-[11px]">Most Searched:</span>
+                  {popularKeywords.map((keyword) => (
+                    <button
+                      key={keyword}
+                      type="button"
+                      onClick={() => setSearch(keyword)}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                        search.toLowerCase() === keyword.toLowerCase()
+                          ? 'bg-[#E09F26] text-white border-[#E09F26] shadow-sm'
+                          : 'bg-white text-[#4A0C16] border-[#E09F26]/30 hover:border-[#E09F26] hover:bg-[#FEF9C3]/50'
+                      }`}
+                    >
+                      #{keyword}
+                    </button>
+                  ))}
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch('')}
+                      className="text-xs text-red-500 hover:underline ml-1 font-bold"
+                    >
+                      Clear filter
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {filteredItems.length === 0 ? (
@@ -630,46 +680,50 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
           </>
         )}
 
-        {/* WORKSPACE SHARED PROVERBS TAB SUB-VIEW PANEL */}
+        {/* WORKSPACE SHARED PROVERBS TAB */}
         {activeTab === "proverb" && (
           <div className="animate-fadeIn">
             <ProverbPosted 
-                changePage={changePage} 
-                role="user" 
-                user={user}
-                starredProverbs={starredProverbs}
-                onToggleStar={toggleStarProverb}
+              changePage={changePage} 
+              role="user" 
+              user={user}
+              starredProverbs={starredProverbs}
+              onToggleStar={onToggleStar}
             />
           </div>
         )}
       </div>
 
-      {/* FLOATING ACTION BUTTON: FEEDBACK CHANNEL */}
+      {/* FLOATING ACTION BUTTON: MODERATOR SUPPORT & FEEDBACK */}
       <button
         onClick={() => setIsFeedbackModalOpen(true)}
         className="fixed bottom-6 right-6 z-[40] bg-[#4A0C16] hover:bg-[#31080E] text-[#FDF5E6] p-4 rounded-full shadow-xl border border-[#E09F26] flex items-center justify-center transition-all duration-300 hover:scale-105"
-        title={t('userDashboard.btnFeedback', 'Send System Feedback')}
+        title={t('userDashboard.btnFeedback', 'Report Issue or Send Feedback')}
       >
         <MessageSquare size={22} className="text-[#E09F26]" />
       </button>
 
-      {/* SYSTEM FEEDBACK MODAL */}
+      {/* MODERATOR FEEDBACK MODAL (PURE SUPPORT) */}
       {isFeedbackModalOpen && (
         <div className="fixed inset-0 z-[50] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="bg-[#FEF9C3] rounded-3xl border-2 border-[#E09F26] shadow-2xl max-w-lg w-full overflow-hidden relative">
             <div className="bg-[#4A0C16] px-6 py-5 flex items-center justify-between border-b border-[#E09F26]/30">
               <div className="flex items-center gap-2.5 text-white">
                 <MessageSquare className="w-5 h-5 text-[#E09F26]" />
-                <h3 className="font-serif font-bold text-lg text-[#FDF5E6]">{t('userDashboard.feedbackTitle', 'System Feedback')}</h3>
+                <h3 className="font-serif font-bold text-lg text-[#FDF5E6]">{t('userDashboard.feedbackTitle', 'Support & Feedback')}</h3>
               </div>
-              <button onClick={handleCloseFeedback} className="text-white/70 hover:text-white">
+              <button onClick={handleCloseFeedback} className="text-white/70 hover:text-white transition-colors">
                 <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleFeedbackSubmit} className="p-6 flex flex-col gap-5">
+            <form onSubmit={handleFeedbackSubmit} className="p-6 flex flex-col gap-4">
+              
+              {/* CATEGORY SELECTOR (3-BUTTON GRID) */}
               <div className="flex flex-col gap-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-[#4A0C16]">{t('userDashboard.feedbackCategory', 'Category')}</label>
+                <label className="text-xs font-bold uppercase tracking-wider text-[#4A0C16]">
+                  {t('userDashboard.feedbackCategory', 'Category')}
+                </label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { label: t('userDashboard.feedbackTypeComment', 'Comment'), value: "General Comment", icon: HelpCircle },
@@ -684,7 +738,9 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
                         type="button"
                         onClick={() => setFeedbackType(type.value)}
                         className={`flex flex-col items-center justify-center p-3 rounded-2xl border text-center transition-all ${
-                          isSelected ? "bg-[#4A0C16] border-[#4A0C16] text-white font-bold" : "bg-white border-[#E09F26]/30 text-gray-700"
+                          isSelected 
+                            ? "bg-[#4A0C16] border-[#4A0C16] text-white font-bold shadow-md" 
+                            : "bg-white border-[#E09F26]/30 text-gray-700 hover:bg-[#FEF9C3]/50"
                         }`}
                       >
                         <IconComponent size={16} className={isSelected ? "text-[#E09F26]" : "text-[#4A0C16] opacity-60"} />
@@ -695,25 +751,110 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
                 </div>
               </div>
 
+              {/* MESSAGE TEXTAREA */}
               <div className="flex flex-col gap-1.5">
                 <textarea
                   required
                   rows="4"
                   value={feedbackMessage}
                   onChange={(e) => setFeedbackMessage(e.target.value)}
-                  placeholder={t('userDashboard.feedbackPlaceholder', 'Describe your feedback details here...')}
-                  className="w-full bg-white border border-[#E09F26]/30 rounded-2xl p-4 text-sm outline-none resize-none text-gray-800"
+                  placeholder={t('userDashboard.feedbackPlaceholder', 'Describe your feedback or issue details here...')}
+                  className="w-full bg-white border border-[#E09F26]/30 rounded-2xl p-4 text-sm outline-none resize-none text-gray-800 focus:border-[#E09F26] focus:ring-2 focus:ring-[#E09F26]/20 transition-all"
                   maxLength={1000}
                 />
               </div>
 
+              {/* ACTION BUTTONS */}
               <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={handleCloseFeedback} className="px-5 py-2.5 rounded-xl text-xs border border-[#E09F26]/40 text-[#4A0C16]">{t('userDashboard.btnCancel', 'Cancel')}</button>
-                <button type="submit" disabled={isSubmittingFeedback} className="px-5 py-2.5 rounded-xl text-xs bg-[#4A0C16] text-white flex items-center justify-center min-w-[140px] gap-2">
-                  {isSubmittingFeedback ? <Loader2 size={14} className="animate-spin" /> : t('userDashboard.btnSubmitFeedback', 'Submit Feedback')}
+                <button 
+                  type="button" 
+                  onClick={handleCloseFeedback} 
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold border border-[#E09F26]/40 text-[#4A0C16] hover:bg-[#FEF9C3]/80 transition-colors"
+                >
+                  {t('userDashboard.btnCancel', 'Cancel')}
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isSubmittingFeedback || !feedbackMessage.trim()} 
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#4A0C16] hover:bg-[#31080E] text-white flex items-center justify-center min-w-[140px] gap-2 transition-all disabled:opacity-50"
+                >
+                  {isSubmittingFeedback ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    t('userDashboard.btnSubmitFeedback', 'Submit Feedback')
+                  )}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* TIMED RATING MODAL (SMART NON-ANNOYING OVERALL SYSTEM RATING FOR ADMIN) */}
+      {isRatingModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-[#FFFDF5] border-2 border-[#E09F26] rounded-3xl p-6 max-w-sm w-full shadow-2xl text-center relative">
+            <button 
+              onClick={() => handleSnoozeRating(3)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+              title="Close and remind in 3 days"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="w-12 h-12 bg-[#FEF9C3] rounded-2xl border border-[#E09F26]/40 flex items-center justify-center mx-auto mb-3 text-[#E09F26]">
+              <Sparkles size={24} />
+            </div>
+
+            <h3 className="text-lg font-bold font-serif text-[#4A0C16] mb-1">Enjoying the Digital Archive?</h3>
+            <p className="text-xs text-gray-600 mb-5 leading-relaxed">How would you rate your overall experience so far?</p>
+
+            {/* Interactive Stars */}
+            <div className="flex justify-center gap-2 mb-6">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onMouseEnter={() => setHoverStars(star)}
+                  onMouseLeave={() => setHoverStars(0)}
+                  onClick={() => setRatingStars(star)}
+                  className="transition-transform hover:scale-125 focus:outline-none p-1"
+                >
+                  <Star 
+                    size={28} 
+                    className={star <= (hoverStars || ratingStars) ? "text-[#E09F26] fill-[#E09F26]" : "text-gray-300"} 
+                  />
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={handleRatingSubmit}
+              disabled={ratingStars === 0 || isSubmittingRating}
+              className={`w-full py-3 rounded-xl font-bold text-xs transition-all shadow-md mb-4 flex items-center justify-center gap-2 ${
+                ratingStars > 0 
+                  ? 'bg-[#4A0C16] text-white hover:bg-[#35080f]' 
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+              }`}
+            >
+              {isSubmittingRating && <Loader2 size={14} className="animate-spin" />}
+              Submit Rating
+            </button>
+
+            <div className="flex justify-between items-center text-[11px] text-gray-500 border-t border-gray-100 pt-3">
+              <button 
+                onClick={() => handleSnoozeRating(7)} 
+                className="hover:text-[#4A0C16] font-semibold underline transition-colors"
+              >
+                Remind me later
+              </button>
+              <button 
+                onClick={handleNeverAskRating} 
+                className="hover:text-red-600 font-semibold underline transition-colors"
+              >
+                Don't ask again
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -734,7 +875,7 @@ const UserDashboard = ({ user, changePage, triggerLogout }) => {
               </p>
               <div className="flex w-full gap-3">
                 <button
-                  onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+                  onClick={() => setConfirmModal({ ...confirmModal, isOpen: false, title: "", message: "", onConfirm: null })}
                   className="flex-1 px-4 py-3 rounded-xl text-sm font-bold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
                 >
                   {t('userDashboard.btnCancel', 'Cancel')}

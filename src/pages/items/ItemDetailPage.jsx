@@ -15,7 +15,6 @@ import {
   checkIsBookmarked 
 } from "../../utils/archiveUtils";
 
-// ADDED: updateDoc and serverTimestamp to the imports below
 import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 
 import {
@@ -41,7 +40,7 @@ const InfoCard = ({ label, value, icon: Icon }) => (
       {Icon && <Icon size={12} className="text-[#E09F26]" />}
       <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{label}</p>
     </div>
-    <p className="font-semibold text-gray-800 text-sm leading-relaxed">{value || "Not specified"}</p>
+    <p className="font-semibold text-gray-800 text-sm leading-relaxed">{value}</p>
   </div>
 );
 
@@ -131,7 +130,6 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
     }
   };
 
-  // FIXED: Explicitly setting pending_admin so it doesn't vanish
   const executeRestore = async () => {
     try {
       const itemRef = doc(db, targetCollection, item.id);
@@ -222,7 +220,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
         safeStatus.includes("valid")
     ));
 
-    const canEdit = 
+  const canEdit = 
     (safeRole === "encoder" && (safeStatus === "returned" || safeStatus.includes("pending"))) || 
     (safeRole === "admin" && safeStatus === "returned");
   const canDelete = safeRole === "admin";
@@ -241,6 +239,63 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
 
   const primaryVisual = allMedia.find(m => m.type === 'image' || m.type === 'audio');
   const secondaryAssets = allMedia.filter(m => m !== primaryVisual);
+
+  // ================= FLEXIBLE DYNAMIC METADATA GENERATION =================
+  const categoryUpper = String(item.category || "").toUpperCase();
+  const metadataCards = [];
+
+  // 1. Era / Period / Publication Year / Date
+  const eraVal = item.era || item.period || item.publicationYear || item.year || item.date || item.dateCreated;
+  if (eraVal) {
+    metadataCards.push({
+      label: (categoryUpper.includes("PUBLICATION") || categoryUpper.includes("RECORD") || categoryUpper.includes("BOOK")) 
+        ? "Publication Year" 
+        : "Era / Period",
+      value: eraVal,
+      icon: Calendar
+    });
+  }
+
+  // 2. Primary Material (Renders whenever material data exists in Firestore)
+  const materialVal = item.material || item.primaryMaterial || item.materials;
+  if (materialVal) {
+    metadataCards.push({
+      label: "Primary Material",
+      value: materialVal,
+      icon: Hammer
+    });
+  }
+
+  // 3. Geographic Origin / Location
+  const originVal = item.origin || item.geographicOrigin || item.location || item.place;
+  if (originVal) {
+    metadataCards.push({
+      label: "Geographic Origin",
+      value: originVal,
+      icon: ArrowLeft
+    });
+  }
+
+  // 4. Archivist / Author / Publisher / Contributor
+  const authorVal = item.author || item.archivist || item.publisher || item.creator || item.contributor;
+  if (authorVal) {
+    metadataCards.push({
+      label: (categoryUpper.includes("PUBLICATION") || categoryUpper.includes("BOOK")) 
+        ? "Author / Publisher" 
+        : "Archivist / Author",
+      value: authorVal,
+      icon: Edit
+    });
+  }
+
+  // 5. Engagement Stats
+  if (!hideInternalStats && safeStatus === "posted") {
+    metadataCards.push({
+      label: "Engagement",
+      value: `${item.viewCount || 0} Views`,
+      icon: Eye
+    });
+  }
 
   return (
     <div className="min-h-screen bg-[#FEF9C3] font-sans antialiased pb-12">
@@ -348,22 +403,26 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
               <div className="space-y-6 flex-1 flex flex-col">
                 <section>
                     <h3 className="text-xs font-bold uppercase tracking-widest text-[#E09F26] mb-3 flex items-center gap-2">
-                        <div className="h-px bg-[#E09F26]/30 flex-1"></div> Narrative Description <div className="h-px bg-[#E09F26]/30 flex-1"></div>
+                        <div className="h-px bg-[#E09F26]/30 flex-1"></div> Description <div className="h-px bg-[#E09F26]/30 flex-1"></div>
                     </h3>
                     <div className="bg-gray-50/50 border border-gray-100 rounded-2xl p-6 whitespace-pre-wrap leading-relaxed text-gray-700 text-sm shadow-inner min-h-[120px]">
                       {item.description || "Description pending archival update."}
                     </div>
                 </section>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <InfoCard label="Era/Period" value={item.era} icon={Calendar} />
-                    <InfoCard label="Primary Material" value={item.material} icon={Hammer} />
-                    <InfoCard label="Geographic Origin" value={item.origin} icon={ArrowLeft} />
-                    <InfoCard label="Archivist/Author" value={item.author} icon={Edit} />
-                    {!hideInternalStats && safeStatus === "posted" && (
-                        <InfoCard label="Engagement" value={`${item.viewCount || 0} Views`} icon={Eye} />
-                    )}
-                </div>
+                {/* DYNAMICALLY RENDERED METADATA CARDS */}
+                {metadataCards.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {metadataCards.map((card, idx) => (
+                      <InfoCard
+                        key={idx}
+                        label={card.label}
+                        value={card.value}
+                        icon={card.icon}
+                      />
+                    ))}
+                  </div>
+                )}
 
                 {/* MODERATOR FEEDBACK SECTION */}
                 {safeStatus === "returned" && item.feedback && (
@@ -444,7 +503,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
         </div>
       )}
 
-      {/* 🔐 UNIVERSAL CONFIRMATION MODAL */}
+      {/* UNIVERSAL CONFIRMATION MODAL */}
       <ConfirmationModal
         isOpen={confirmConfig.isOpen}
         config={confirmConfig}

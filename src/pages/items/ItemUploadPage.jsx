@@ -14,7 +14,7 @@ import { detectMediaType } from "../../utils/mediaUtils";
 // Import your custom hook
 import { useSessionStorage } from "../../hooks/useSessionStorage";
 
-// 🟢 NEW: Import your shared utilities
+// 🟢 Shared utilities
 import { processTags, CLOUDINARY_WIDGET_STYLE } from "../../utils/formUtils"; 
 
 import {
@@ -42,11 +42,14 @@ const UploadPage = ({ changePage, editItem }) => {
 
   const [loading, setLoading] = useState(false);
 
+  // --- FORM STATE WITH SESSION STORAGE ---
   const [category, setCategory] = useSessionStorage("upload_category", "Artifact");
   const [title, setTitle] = useSessionStorage("upload_title", "");
   const [description, setDescription] = useSessionStorage("upload_desc", "");
   const [tagsInput, setTagsInput] = useSessionStorage("upload_tags", ""); 
+  const [era, setEra] = useSessionStorage("upload_era", ""); // 🟢 Universal Era/Year
   const [origin, setOrigin] = useSessionStorage("upload_origin", "");
+  const [material, setMaterial] = useSessionStorage("upload_material", ""); // 🟢 Artifact Primary Material
   const [author, setAuthor] = useSessionStorage("upload_author", "");
   const [recordType, setRecordType] = useSessionStorage("upload_recordType", "Fun Fact");
   const [imageUrl, setImageUrl] = useSessionStorage("upload_imageUrl", "");
@@ -67,7 +70,7 @@ const UploadPage = ({ changePage, editItem }) => {
         resourceType: "auto", 
         multiple: false,
         theme: "minimal",
-        styles: CLOUDINARY_WIDGET_STYLE // 🟢 CHANGED: Replaced massive block with clean import
+        styles: CLOUDINARY_WIDGET_STYLE
       },
       (error, result) => {
         if (!error && result && result.event === "success") {
@@ -104,7 +107,9 @@ const UploadPage = ({ changePage, editItem }) => {
       setTitle(editItem.title || "");
       setDescription(editItem.description || "");
       setTagsInput(editItem.tags ? editItem.tags.join(", ") : ""); 
+      setEra(editItem.era || editItem.period || editItem.publicationYear || editItem.year || editItem.date || "");
       setOrigin(editItem.origin || "");
+      setMaterial(editItem.material || editItem.primaryMaterial || "");
       setAuthor(editItem.author || "");
       setRecordType(editItem.recordType || "Fun Fact");
       setImageUrl(editItem.imageUrl || "");
@@ -157,7 +162,6 @@ const UploadPage = ({ changePage, editItem }) => {
         });
       }
 
-      // 🟢 CHANGED: Utilized processTags utility instead of inline splitting
       const tagsArray = processTags(tagsInput);
 
       const data = {
@@ -165,10 +169,11 @@ const UploadPage = ({ changePage, editItem }) => {
         description,
         tags: tagsArray, 
         category,
+        era, // 🟢 Included for ALL categories
         media: mediaAssets, 
         imageUrl, 
         fileUrl,  
-        ...(category === "Artifact" && { origin }),
+        ...(category === "Artifact" && { origin, material }), // 🟢 Origin & Material for Artifacts
         ...(category === "Publication" && { author }),
         ...(category === "Historical Records" && { recordType }),
         status: "pending", 
@@ -182,11 +187,11 @@ const UploadPage = ({ changePage, editItem }) => {
         try {
           await notifyRole({
             role: "moderator", 
-            targetRole: "moderator", // Ensure alignment with new standard
+            targetRole: "moderator",
             message: `Item resubmitted by encoder: ${title}`,
             type: "upload",
             itemId: editItem.id,
-            isReadBy: [] // Force unread state for the badge
+            isReadBy: []
           });
         } catch (notifError) {
           console.log("Notification failed:", notifError);
@@ -204,11 +209,11 @@ const UploadPage = ({ changePage, editItem }) => {
         try {
           await notifyRole({
             role: "moderator",
-            targetRole: "moderator", // Ensure alignment with new standard
+            targetRole: "moderator",
             message: `New item uploaded: ${title}`,
             type: "upload",
             itemId: docRef.id,
-            isReadBy: [] // Force unread state for the badge
+            isReadBy: []
           });
         } catch (notifError) {
           console.log("Notification failed:", notifError);
@@ -217,10 +222,11 @@ const UploadPage = ({ changePage, editItem }) => {
         showToast("Upload successful!", "success");
       }
 
+      // Clear Session Storage
       const keysToRemove = [
         "upload_category", "upload_title", "upload_desc", "upload_tags", 
-        "upload_origin", "upload_author", "upload_recordType", 
-        "upload_imageUrl", "upload_fileUrl"
+        "upload_era", "upload_origin", "upload_material", "upload_author", 
+        "upload_recordType", "upload_imageUrl", "upload_fileUrl"
       ];
       keysToRemove.forEach(key => sessionStorage.removeItem(key));
 
@@ -306,6 +312,23 @@ const UploadPage = ({ changePage, editItem }) => {
                 />
               </div>
 
+              {/* 🟢 UNIVERSAL FIELD: ERA / PERIOD / YEAR */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
+                  Era / Period / Year
+                </label>
+                <input 
+                  className="w-full border border-gray-200 p-3.5 rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm font-medium text-gray-800" 
+                  placeholder={
+                    category === "Publication" 
+                      ? "E.g., 1999, 2004..." 
+                      : "E.g., 19th Century, Pre-colonial, 1985..."
+                  }
+                  value={era} 
+                  onChange={(e) => setEra(e.target.value)} 
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Metadata Tags</label>
                 <input 
@@ -316,16 +339,29 @@ const UploadPage = ({ changePage, editItem }) => {
                 />
               </div>
 
+              {/* CATEGORY-SPECIFIC CONTEXT FIELDS */}
               <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
                 {category === "Artifact" && (
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Origin Context</label>
-                    <input 
-                      className="w-full border border-gray-200 p-3.5 bg-white rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm text-gray-800 font-medium" 
-                      placeholder="E.g., Lanao del Sur, Brassware Guild, Era/Period..."
-                      value={origin} 
-                      onChange={(e) => setOrigin(e.target.value)} 
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Origin Context</label>
+                      <input 
+                        className="w-full border border-gray-200 p-3.5 bg-white rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm text-gray-800 font-medium" 
+                        placeholder="E.g., Lanao del Sur, Brassware Guild..."
+                        value={origin} 
+                        onChange={(e) => setOrigin(e.target.value)} 
+                      />
+                    </div>
+                    {/* 🟢 ARTIFACT PRIMARY MATERIAL FIELD */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Primary Material</label>
+                      <input 
+                        className="w-full border border-gray-200 p-3.5 bg-white rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm text-gray-800 font-medium" 
+                        placeholder="E.g., Brass, Hardwood, Gold, Silk..."
+                        value={material} 
+                        onChange={(e) => setMaterial(e.target.value)} 
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -356,6 +392,7 @@ const UploadPage = ({ changePage, editItem }) => {
                 )}
               </div>
 
+              {/* MEDIA UPLOADS */}
               <div className="space-y-4 pt-2">
                 
                 <div>
@@ -461,6 +498,7 @@ const UploadPage = ({ changePage, editItem }) => {
           </div>
         </div>
 
+        {/* RIGHT COLUMN: PREVIEW CARD */}
         <div className="lg:col-span-5 xl:col-span-4 hidden lg:block">
           <div className="sticky top-8 space-y-4">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
@@ -491,7 +529,7 @@ const UploadPage = ({ changePage, editItem }) => {
                     {title || "Untitled Cultural Record"}
                   </h3>
                   <p className="text-[10px] text-[#E09F26] mt-1.5 uppercase tracking-widest font-bold">
-                    {category}
+                    {category} {era ? `• ${era}` : ""}
                   </p>
                   <p className="text-sm text-gray-500 mt-3 line-clamp-2 leading-relaxed">
                     {description || "A description item will visualize itself here as you type..."}

@@ -19,7 +19,6 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
       const allProverbs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       const published = allProverbs.filter(item => {
         const stat = (item.status || "").toLowerCase();
-        // 🟢 THE FIX: Check for status AND make sure isDeleted is false/undefined!
         return (stat === "validated" || stat === "posted") && !item.isDeleted;
       });
       setProverbs(published);
@@ -52,6 +51,7 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
       const bStarred = starredProverbs.includes(b.id);
       if (aStarred && !bStarred) return -1;
       if (!aStarred && bStarred) return 1;
+      if (0) return 0;
       return 0;
     });
   }, [proverbs, searchQuery, selectedCategory, starredProverbs]);
@@ -62,10 +62,11 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
   const paginatedItems = filteredAndSortedProverbs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
-    <div className="w-full animate-fadeIn p-4 md:p-8 max-w-7xl mx-auto">
+    /* 🛠️ REDUCED TOP/SIDE PADDING HERE (from p-4 md:p-8 to py-2 px-1) */
+    <div className="w-full animate-fadeIn py-2 px-1 max-w-7xl mx-auto">
       
-      {/* 🔍 SEARCH & DROPDOWN */}
-      <div className="flex flex-col md:flex-row gap-4 mb-8 items-stretch md:items-center justify-between">
+      {/* 🔍 SEARCH & DROPDOWN - TIGHTENED MARGINS (mb-8 -> mb-4, py-4 -> py-3) */}
+      <div className="flex flex-col md:flex-row gap-3 mb-4 items-stretch md:items-center justify-between">
         <div className="relative flex-1 max-w-xl">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <input 
@@ -73,7 +74,7 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
             placeholder="Search traditional wisdom..." 
             value={searchQuery} 
             onChange={(e) => setSearchQuery(e.target.value)} 
-            className="w-full pl-12 pr-4 py-4 rounded-2xl border border-[#E09F26]/30 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-sm bg-white text-sm font-medium text-[#4A0C16] transition-all" 
+            className="w-full pl-12 pr-4 py-3 rounded-2xl border border-[#E09F26]/30 focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 shadow-sm bg-white text-sm font-medium text-[#4A0C16] transition-all" 
           />
         </div>
 
@@ -82,7 +83,7 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="w-full pl-11 pr-10 py-4 bg-white rounded-2xl border border-[#E09F26]/30 appearance-none focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 text-sm font-bold text-[#4A0C16] shadow-sm cursor-pointer transition-all"
+            className="w-full pl-11 pr-10 py-3 bg-white rounded-2xl border border-[#E09F26]/30 appearance-none focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 text-sm font-bold text-[#4A0C16] shadow-sm cursor-pointer transition-all"
           >
             {categories.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Proverb Kinds" : cat}</option>)}
           </select>
@@ -92,26 +93,26 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
 
       {/* 🏛️ GRID */}
       {paginatedItems.length === 0 ? (
-        <div className="bg-white/60 p-16 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center">
+        <div className="bg-white/60 p-12 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center">
           <Inbox className="w-12 h-12 text-gray-300 mb-3" />
           <p className="text-gray-500 font-medium text-lg">No proverbs found.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {paginatedItems.map(item => {
             const isStarred = starredProverbs.includes(item.id);
             return (
               <div 
                 key={item.id} 
                 onClick={() => changePage("proverbdetail", { itemId: item.id, fromPage: "proverb", role: role || "user" })} 
-                className="bg-white rounded-2xl flex flex-col shadow-sm border border-[#E09F26]/20 hover:border-[#E09F26]/80 hover:shadow-lg transition-all duration-300 h-[220px] p-6 cursor-pointer group relative overflow-hidden"
+                className="bg-white rounded-2xl flex flex-col shadow-sm border border-[#E09F26]/20 hover:border-[#E09F26]/80 hover:shadow-lg transition-all duration-300 h-[210px] p-5 cursor-pointer group relative overflow-hidden"
               >
-                <div className="flex items-center justify-between gap-4 mb-3 shrink-0 relative z-20">
+                <div className="flex items-center justify-between gap-4 mb-2 shrink-0 relative z-20">
                   <span className="text-[10px] text-[#A16207] bg-[#FEF9C3] font-black uppercase tracking-widest px-2.5 py-1 rounded border border-[#FEF08A] truncate max-w-[80%]">
                     {item.category || "General Life Lessons"}
                   </span>
 
-                  {/* ⭐ STAR BUTTON - FIXED CLICKABILITY */}
+                  {/* ⭐ STAR BUTTON */}
                   {role === "user" && (
                     <button
                       type="button"
@@ -136,19 +137,19 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
                   )}
                 </div>
 
-                <div className="flex gap-4 items-start flex-1 overflow-hidden pointer-events-none">
-                  <Quote size={28} className="text-[#E09F26] mt-1 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-300" />
-                  <div className="flex flex-col gap-2 w-full">
-                    <h3 className="text-xl font-black text-[#4A0C16] italic font-serif line-clamp-2 leading-snug">
+                <div className="flex gap-3 items-start flex-1 overflow-hidden pointer-events-none">
+                  <Quote size={24} className="text-[#E09F26] mt-1 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-300" />
+                  <div className="flex flex-col gap-1 w-full">
+                    <h3 className="text-lg font-black text-[#4A0C16] italic font-serif line-clamp-2 leading-snug">
                       "{item.proverb || item.title}"
                     </h3>
                     {item.meaning && <p className="text-sm text-gray-500 line-clamp-2 font-medium leading-relaxed">{item.meaning}</p>}
                   </div>
                 </div>
 
-                <div className="mt-auto pt-3 border-t border-gray-50 text-right shrink-0 pointer-events-none">
+                <div className="mt-auto pt-2 border-t border-gray-50 text-right shrink-0 pointer-events-none">
                    <span className="text-[10px] font-bold text-[#E09F26] uppercase tracking-wider group-hover:text-[#4A0C16] transition-colors">
-                      Read Full Detail &rarr;
+                     Read Full Detail &rarr;
                    </span>
                 </div>
               </div>
@@ -159,10 +160,10 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
 
       {/* Pagination */}
       {filteredAndSortedProverbs.length > itemsPerPage && (
-        <div className="mt-12 flex items-center justify-center gap-2">
-          <button onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1} className="p-2.5 bg-white border rounded-xl disabled:opacity-40"><ChevronLeft size={18}/></button>
+        <div className="mt-8 flex items-center justify-center gap-2">
+          <button onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1} className="p-2 bg-white border rounded-xl disabled:opacity-40"><ChevronLeft size={18}/></button>
           <span className="text-sm font-bold text-[#4A0C16]">Page {currentPage} of {totalPages}</span>
-          <button onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages} className="p-2.5 bg-white border rounded-xl disabled:opacity-40"><ChevronRight size={18}/></button>
+          <button onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages} className="p-2 bg-white border rounded-xl disabled:opacity-40"><ChevronRight size={18}/></button>
         </div>
       )}
     </div>

@@ -2,7 +2,17 @@ import { useTranslation } from 'react-i18next';
 import React, { useEffect, useState, useRef } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "./firebase/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { 
+  doc, 
+  getDoc, 
+  collection, 
+  query, 
+  where, 
+  onSnapshot, 
+  getDocs, 
+  addDoc, 
+  deleteDoc 
+} from "firebase/firestore";
 import Loader from "./components/Loader";
 import { useSessionStorage } from "./hooks/useSessionStorage";
 // 🔔 Notification System Context Integration
@@ -41,6 +51,9 @@ const App = () => {
   const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // ⭐ Realtime list of bookmarked/starred IDs
+  const [starredProverbs, setStarredProverbs] = useState([]);
+
   // ✅ MAGIC HAPPENS HERE: useSessionStorage perfectly handles saving and loading for us.
   const [page, setPage] = useSessionStorage("saved_page", "landing");
   const [pageData, setPageData] = useSessionStorage("saved_page_data", {});
@@ -60,6 +73,55 @@ const App = () => {
   useEffect(() => {
     pageRef.current = page;
   }, [page]);
+
+  // ================= REALTIME BOOKMARKS SYNC =================
+  useEffect(() => {
+    if (!user) {
+      setStarredProverbs([]);
+      return;
+    }
+
+    const q = query(collection(db, "bookmarks"), where("userId", "==", user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const bookmarkedIds = snapshot.docs.map(docSnap => docSnap.data().itemId);
+      setStarredProverbs(bookmarkedIds);
+    }, (err) => {
+      console.error("Error listening to bookmarks:", err);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // ================= TOGGLE BOOKMARK / STAR FUNCTION =================
+  const handleToggleStar = async (proverbItem) => {
+    if (!user) return;
+
+    try {
+      const q = query(
+        collection(db, "bookmarks"),
+        where("userId", "==", user.uid),
+        where("itemId", "==", proverbItem.id)
+      );
+
+      const snapshot = await getDocs(q);
+
+      if (!snapshot.empty) {
+        // Already bookmarked -> Remove from bookmarks collection
+        snapshot.forEach(async (docSnap) => {
+          await deleteDoc(doc(db, "bookmarks", docSnap.id));
+        });
+      } else {
+        // Not bookmarked -> Add to bookmarks collection
+        await addDoc(collection(db, "bookmarks"), {
+          userId: user.uid,
+          itemId: proverbItem.id,
+          createdAt: new Date()
+        });
+      }
+    } catch (error) {
+      console.error("Error toggling proverb star bookmark:", error);
+    }
+  };
 
   // ================= UNIFIED GLOBAL LOGOUT ACTIONS =================
   const handleGlobalLogout = async () => {
@@ -164,7 +226,12 @@ const App = () => {
       {page === "bookmarks" && <BookmarkPage changePage={changePage} />}
       
       {page === "proverb" && (
-        <ProverbPosted role={role} changePage={changePage} />
+        <ProverbPosted 
+          role={role} 
+          changePage={changePage} 
+          starredProverbs={starredProverbs}
+          onToggleStar={handleToggleStar}
+        />
       )}
       
       {page === "landing" && <LandingPage changePage={changePage} />}
@@ -205,7 +272,15 @@ const App = () => {
           {role === "encoder" && <EncoderDashboard user={user} changePage={changePage} triggerLogout={triggerLogoutModal} />}
           {role === "moderator" && <ModeratorDashboard user={user} changePage={changePage} triggerLogout={triggerLogoutModal} />}
           {role === "admin" && <AdminDashboard user={user} changePage={changePage} triggerLogout={triggerLogoutModal} />}
-          {role === "user" && <UserDashboard user={user} changePage={changePage} triggerLogout={triggerLogoutModal} />}
+          {role === "user" && (
+  <UserDashboard 
+    user={user} 
+    changePage={changePage} 
+    triggerLogout={triggerLogoutModal} 
+    starredProverbs={starredProverbs}
+    onToggleStar={handleToggleStar}
+  />
+)}
         </>
       )}
 

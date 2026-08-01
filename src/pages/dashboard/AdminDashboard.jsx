@@ -11,7 +11,7 @@ import {
 } from "recharts";
 
 import {
-  BookOpen, Archive, Users, Search, ChevronLeft, ChevronRight, Inbox, Activity, ShieldCheck, BarChart3, Layers, Quote, Loader2, Trash2, RefreshCw, AlertTriangle
+  BookOpen, Archive, Users, Search, ChevronLeft, ChevronRight, Inbox, Activity, ShieldCheck, BarChart3, Layers, Quote, Loader2, Trash2, RefreshCw, AlertTriangle, Star
 } from "lucide-react";
 
 import { notifyRole, sendNotification } from "../../services/notificationService";
@@ -49,7 +49,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     sessionStorage.setItem("adminTab", tab);
   }, [tab]);
 
-  // Recycle Bin States
+  // Recycle Bin Filter State
   const [binFilter, setBinFilter] = useState("cultural"); // "cultural" | "proverb"
 
   // Search & Filtering States
@@ -62,7 +62,10 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
   const [usersPage, setUsersPage] = useState(1);
   const [binPage, setBinPage] = useState(1);
   
-  const itemsPerPage = (tab === "validation" || tab === "archive" || tab === "recycle_bin") ? 15 : 8; 
+  // 🟢 REQUIREMENT 3: Set Users page limit to 20 items per page
+  const itemsPerPage = 
+    tab === "users" ? 20 : 
+    (tab === "validation" || tab === "archive" || tab === "recycle_bin") ? 15 : 8; 
 
   // --- NEW UNIVERSAL MODAL STATE ---
   const [confirmConfig, setConfirmConfig] = useState({
@@ -77,7 +80,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
   const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
 
   // ================= DATA FETCHING (CENTRALIZED HOOK) =================
-  // This single line replaces all 5 separate states and the 5 onSnapshot useEffects!
   const { items, publishedProverbs, binnedProverbs, users, unreadCount } = useSystemData();
 
   // ================= DATA DERIVATION (MEMOIZED) =================
@@ -107,6 +109,40 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
       ]
     };
   }, [activeItems, users]);
+
+  const [showRatingDetails, setShowRatingDetails] = useState(false);
+
+  // 🟢 REQUIREMENT 1: Dynamic overall rating calculation
+  const [overallRating, setOverallRating] = useState({
+    score: "0.0",
+    ratedCount: 0,
+    stars: 0
+  });
+  
+  // 🔄 Listen live to pop-up submissions in systemRatings collection
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, "systemRatings"), (snapshot) => {
+      if (snapshot.empty) {
+        setOverallRating({ score: "0.0", ratedCount: 0, stars: 0 });
+        return;
+      }
+  
+      const ratings = snapshot.docs.map(doc => Number(doc.data().rating) || 0);
+      const totalScore = ratings.reduce((sum, curr) => sum + curr, 0);
+      const count = ratings.length;
+      const avg = count > 0 ? (totalScore / count).toFixed(1) : "0.0";
+  
+      setOverallRating({
+        score: avg,
+        ratedCount: count,
+        stars: Math.round(parseFloat(avg))
+      });
+    }, (err) => {
+      console.error("Error reading system ratings:", err);
+    });
+  
+    return () => unsubscribe();
+  }, []);
 
   const statsMetrics = useMemo(() => {
     const totalPublished = allPosted.length + publishedProverbs.length;
@@ -161,13 +197,19 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     };
   }, [activeItems, searchQuery, selectedCategory]);
 
-  // Search for Users
+  // 🟢 REQUIREMENT 3: Search & Sort Users (Newest registered users first)
   const displayUsers = useMemo(() => {
-    return users.filter(u => {
-      const searchLower = searchQuery.toLowerCase();
-      return (u.email || "").toLowerCase().includes(searchLower) ||
-             (u.role || "").toLowerCase().includes(searchLower);
-    });
+    return [...users]
+      .sort((a, b) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        return timeB - timeA;
+      })
+      .filter(u => {
+        const searchLower = searchQuery.toLowerCase();
+        return (u.email || "").toLowerCase().includes(searchLower) ||
+               (u.role || "").toLowerCase().includes(searchLower);
+      });
   }, [users, searchQuery]);
 
   const recentActivity = useMemo(() => {
@@ -221,7 +263,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     try {
       const date = new Date().toLocaleDateString();
       
-      // 1. HEADER & SUMMARY SECTION
       let csv = "MSU-MCHC SYSTEM REPOSITORY REPORT\n";
       csv += `Generated on: ${date}\n\n`;
       
@@ -229,28 +270,25 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
       csv += `Total Active Cultural Items, ${activeItems.length}\n`;
       csv += `Total Published Proverbs, ${publishedProverbs.length}\n`;
       csv += `Total Registered Users, ${users.length}\n`;
+      csv += `Overall Repository Rating, ${overallRating.score} / 5.0\n`;
       csv += `Items in Recycle Bin, ${binnedCulturalItems.length + binnedProverbs.length}\n`;
       csv += `Total Overall Records, ${items.length + publishedProverbs.length + binnedProverbs.length}\n\n`;
 
-      // 2. DETAILED INVENTORY TABLE
       csv += "--- DETAILED ITEM INVENTORY ---\n";
       csv += "Type,Item ID,Title/Proverb,Category,Status,Date Added\n";
 
-      // Add Cultural Items
       activeItems.forEach((item) => {
         const title = item.title ? `"${item.title.replace(/"/g, '""')}"` : '"Untitled"';
         const dateAdded = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString() : "N/A";
         csv += `Artifact,${item.id},${title},${item.category || "N/A"},${item.status},${dateAdded}\n`;
       });
 
-      // Add Proverbs
       publishedProverbs.forEach((p) => {
         const text = p.proverb ? `"${p.proverb.replace(/"/g, '""')}"` : '"Untitled"';
         const dateAdded = p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : "N/A";
         csv += `Proverb,${p.id},${text},Proverb,posted,${dateAdded}\n`;
       });
 
-      // 3. DOWNLOAD LOGIC
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -278,7 +316,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
       onConfirm: async () => {
         setIsSubmitting(true);
         try {
-          // 1. DYNAMIC COLLECTION: Works for both culturalItems and proverbs now
           await updateDoc(doc(db, collectionName, itemId), { 
             isDeleted: true,
             status: "trashed", 
@@ -286,8 +323,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
             deletedBy: auth.currentUser?.uid
           });
 
-          // 2. BOOKMARKS FIX: Wrapped in its own try/catch. 
-          // If Firestore blocks it, it won't crash the whole deletion process.
           try {
             const bookmarksRef = collection(db, "bookmarks");
             const q = query(bookmarksRef, where("itemId", "==", itemId));
@@ -309,7 +344,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
           showToast(err.message, "error"); 
         } finally {
           setIsSubmitting(false);
-          // 3. MODAL FIX: Closes the modal so the next click works perfectly
           setConfirmConfig((prev) => ({ ...prev, isOpen: false })); 
         }
       }
@@ -328,8 +362,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
         setIsSubmitting(true);
         try {
           const collectionName = binFilter === "cultural" ? "culturalItems" : "proverb";
-          
-          // ✅ FIX: Match the status word your Moderator is filtering for
           const resetStatus = binFilter === "cultural" ? "pending_admin" : "pending_moderation";
 
           await updateDoc(doc(db, collectionName, item.id), {
@@ -338,7 +370,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
             restoredAt: serverTimestamp()
           });
 
-          // Notify the moderator if a Proverb is restored
           if (binFilter === "proverb") {
             await notifyRole({
               role: "moderator",
@@ -378,7 +409,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
           showToast(err.message, "error");
         } finally {
           setIsSubmitting(false);
-          // MODAL FIX: Close the modal immediately
           setConfirmConfig((prev) => ({ ...prev, isOpen: false }));
         }
       }
@@ -476,7 +506,6 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
     return () => unsubscribe();
   }, []);
 
-  // The Typo Shield: Count words, ignore anything searched only 1 time, sort, and grab top 15
   const trendingSearches = Object.entries(
     searchAnalytics.reduce((acc, word) => {
       acc[word] = (acc[word] || 0) + 1;
@@ -510,29 +539,109 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
       onNotificationClick={() => changePage("notifications", { fromPage: "dashboard" })}
       onLogout={triggerLogout}
     >
-      {/* 📊 METRICS SUMMARY PANEL */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-4">
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
-          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Total Published</p>
-          <div className="flex items-baseline gap-2">
-            <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{statsMetrics.totalPublished}</h2>
-            <span className="text-[10px] text-[#4A0C16]/70 font-bold uppercase">Items + Proverbs</span>
+      {/* 🟢 METRICS SUMMARY PANEL */}
+      {(tab === "analytics" || tab === "validation") && (
+        <div className="mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+            
+            {/* 1. Total Published Card */}
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16]/15 hover:border-[#4A0C16] hover:shadow-md transition-all duration-300">
+              <p className="text-[#4A0C16] text-[11px] font-bold uppercase tracking-wider">Total Published</p>
+              <div className="flex items-baseline gap-2 mt-1">
+                <h2 className="text-3xl font-black text-[#4A0C16] font-serif">{statsMetrics.totalPublished}</h2>
+                <span className="text-[10px] text-[#4A0C16]/70 font-bold uppercase">Items + Proverbs</span>
+              </div>
+            </div>
+
+            {/* 2. New This Week Card */}
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16]/15 hover:border-[#4A0C16] hover:shadow-md transition-all duration-300">
+              <p className="text-[#4A0C16] text-[11px] font-bold uppercase tracking-wider">New This Week</p>
+              <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">+{statsMetrics.newThisWeek}</h2>
+            </div>
+
+            {/* 3. Total Users Card */}
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16]/15 hover:border-[#4A0C16] hover:shadow-md transition-all duration-300">
+              <p className="text-[#4A0C16] text-[11px] font-bold uppercase tracking-wider">Total Users</p>
+              <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{statsMetrics.totalUsers}</h2>
+            </div>
+
+            {/* 4. Clickable Overall Rating Card */}
+            <div
+              onClick={() => setShowRatingDetails((prev) => !prev)}
+              className={`bg-gradient-to-br from-[#4A0C16] to-[#2B070D] p-5 rounded-3xl shadow-md border text-white relative overflow-hidden group cursor-pointer transition-all duration-300 hover:scale-[1.02] active:scale-95 ${
+                showRatingDetails ? "ring-4 ring-[#E09F26]/50 border-[#E09F26]" : "border-[#E09F26]/30"
+              }`}
+              title="Click to toggle detailed breakdown"
+            >
+              <div className="absolute top-2 right-2 text-[#E09F26]/20 group-hover:text-[#E09F26]/40 transition-colors">
+                <Star size={56} fill="currentColor" />
+              </div>
+
+              <div className="flex items-center justify-between relative z-10 mb-1">
+                <p className="text-[#E09F26] text-[11px] font-bold uppercase tracking-wider">Overall Rating</p>
+                <span className="text-[9px] bg-[#E09F26]/20 text-[#E09F26] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                  {showRatingDetails ? "Hide" : "View"}
+                </span>
+              </div>
+
+              <div className="flex items-baseline gap-2 relative z-10">
+                <h2 className="text-3xl font-black text-white font-serif">{overallRating.score}</h2>
+                <div className="flex items-center text-[#E09F26]">
+                  <Star size={14} fill="currentColor" />
+                  <span className="text-[10px] text-gray-300 font-bold ml-1">/ 5.0</span>
+                </div>
+              </div>
+            </div>
           </div>
+
+          {/* 🟢 EXPANDABLE SYSTEM FEEDBACK DROPDOWN */}
+          {showRatingDetails && (
+            <div className="mt-4 bg-gradient-to-r from-white via-amber-50/30 to-white rounded-3xl p-6 shadow-md border border-[#E09F26]/30 animate-fadeIn relative">
+              <button 
+                onClick={() => setShowRatingDetails(false)}
+                className="absolute top-4 right-4 text-xs font-bold text-gray-400 hover:text-[#4A0C16] px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-xl transition cursor-pointer"
+              >
+                ✕ Close
+              </button>
+
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 pr-8">
+                <div className="space-y-1">
+                  <span className="inline-block px-3 py-1 bg-[#E09F26]/10 text-[#4A0C16] text-[10px] font-bold uppercase tracking-wider rounded-full border border-[#E09F26]/20">
+                    User Satisfaction
+                  </span>
+                  <h3 className="text-xl font-black text-[#4A0C16] font-serif">Overall Website Rating</h3>
+                  <p className="text-xs text-gray-500 max-w-xl">
+                    Real-time satisfaction score collected from user popup ratings across the digital archive platform.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-6 bg-white p-4 rounded-2xl border border-[#E09F26]/15 shadow-xs w-full md:w-auto">
+                  <div className="text-center">
+                    <span className="text-4xl font-black font-serif text-[#4A0C16]">{overallRating.score}</span>
+                    <span className="text-xs text-gray-400 font-bold block">out of 5.0</span>
+                  </div>
+                  <div className="h-10 w-[1px] bg-gray-200" />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1 text-[#E09F26]">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star 
+                          key={star} 
+                          size={18} 
+                          fill={star <= overallRating.stars ? "currentColor" : "none"} 
+                          className={star <= overallRating.stars ? "text-[#E09F26]" : "text-gray-300"}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-[11px] font-semibold text-gray-500">
+                      Based on <strong className="text-[#4A0C16]">{overallRating.ratedCount}</strong> user ratings
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
-          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">New This Week</p>
-          <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">+{statsMetrics.newThisWeek}</h2>
-        </div>
-
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
-          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Total Users</p>
-          <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{statsMetrics.totalUsers}</h2>
-        </div>
-      </div>
-
-      <hr className="my-8 border-t border-[#E09F26]/20 mx-auto w-[98%]" />
-
+      )}
       {/* 🔍 FILTERING UTILITY UNIT */}
       {(tab === "validation" || tab === "archive" || tab === "users" || tab === "recycle_bin") && (
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
@@ -567,7 +676,7 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
         {/* TAB: ANALYTICS MATRIX */}
         {tab === "analytics" && (
           <div className="space-y-8 animate-fadeIn">
-            {/* NEW: Action Bar for Analytics */}
+            {/* Action Bar for Analytics */}
             <div className="flex justify-between items-center bg-white p-4 rounded-3xl border border-[#E09F26]/15 shadow-sm">
               <div>
                 <h3 className="text-lg font-bold text-[#4A0C16] font-serif">Management Reports</h3>
@@ -575,12 +684,13 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
               </div>
               <button 
                 onClick={handleGenerateReport}
-                className="flex items-center gap-2 px-6 py-3 bg-[#107C41] text-white text-sm font-bold rounded-2xl hover:bg-[#0b5c30] transition-all shadow-md hover:shadow-lg active:scale-95"
+                className="flex items-center gap-2 px-6 py-3 bg-[#107C41] text-white text-sm font-bold rounded-2xl hover:bg-[#0b5c30] transition-all shadow-md hover:shadow-lg active:scale-95 cursor-pointer"
               >
                 <RefreshCw size={16} className="animate-spin-slow" />
                 Generate Full System Report (.csv)
               </button>
             </div>
+
             <div className="grid lg:grid-cols-2 gap-6">
               <div className="bg-white rounded-3xl p-6 shadow-[0_4px_25px_rgba(74,12,22,0.01)] border border-[#E09F26]/15 relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
@@ -633,30 +743,30 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
                 </div>
               </div>
             </div>
-
+            
             {/* NEW ADDITION: MOST SEARCHED KEYWORDS / METADATA TAGS */}
             <div className="bg-white rounded-3xl border border-[#E09F26]/15 p-6 shadow-[0_4px_25px_rgba(74,12,22,0.01)]">
-              <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
-                <Search className="text-[#E09F26] w-5 h-5" />
-                <h3 className="text-base font-bold text-[#4A0C16] font-serif">Verified Search Trends</h3>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                {trendingSearches.length === 0 ? (
-                  <p className="text-gray-400 text-xs italic py-2">
-                    Awaiting consistent search trends (ignoring single typos)...
-                  </p>
-                ) : (
-                  trendingSearches.map(([word, count], i) => (
-                    <div key={i} className="px-3 py-1.5 bg-[#FEF9C3]/20 border border-[#E09F26]/30 rounded-xl flex items-center gap-2">
-                      <span className="text-xs font-bold text-[#4A0C16] capitalize">{word}</span>
-                      <span className="bg-[#4A0C16] text-white text-[9px] px-1.5 py-0.5 rounded-md font-black">
-                        {count} Searches
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+  <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+    <Search className="text-[#E09F26] w-5 h-5" />
+    <h3 className="text-base font-bold text-[#4A0C16] font-serif">Verified Search Trends</h3>
+  </div>
+  <div className="flex flex-wrap gap-3">
+    {trendingSearches.length === 0 ? (
+      <p className="text-gray-400 text-xs italic py-2">
+        Awaiting consistent search trends (ignoring single typos)...
+      </p>
+    ) : (
+      trendingSearches.slice(0, 10).map(([word, count], i) => (
+        <div key={i} className="px-3 py-1.5 bg-[#FEF9C3]/20 border border-[#E09F26]/30 rounded-xl flex items-center gap-2">
+          <span className="text-xs font-bold text-[#4A0C16] capitalize">{word}</span>
+          <span className="bg-[#4A0C16] text-white text-[9px] px-1.5 py-0.5 rounded-md font-black">
+            {count} Searches
+          </span>
+        </div>
+      ))
+    )}
+  </div>
+</div>
 
             <div className="bg-white rounded-3xl border border-[#E09F26]/15 p-6 shadow-[0_4px_25px_rgba(74,12,22,0.01)]">
               <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
@@ -870,103 +980,110 @@ const AdminDashboard = ({ changePage, triggerLogout, initialTab }) => {
         )}
 
         {/* TAB: RECYCLE BIN */}
-        {tab === "recycle_bin" && (
-          <div className="animate-fadeIn">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-[#4A0C16] font-serif">Recycle Bin</h2>
-                <p className="text-xs text-gray-500">Restore or permanently remove deleted records</p>
-              </div>
-              
-              <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
-                <button 
-                  onClick={() => setBinFilter("cultural")}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${binFilter === "cultural" ? "bg-white text-[#4A0C16] shadow-sm" : "text-gray-500 hover:text-[#4A0C16]"}`}
-                >
-                  Cultural Items
-                </button>
-                <button 
-                  onClick={() => setBinFilter("proverb")}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${binFilter === "proverb" ? "bg-white text-[#4A0C16] shadow-sm" : "text-gray-500 hover:text-[#4A0C16]"}`}
-                >
-                  Proverbs
-                </button>
-              </div>
+      {tab === "recycle_bin" && (
+        <div className="animate-fadeIn">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-[#4A0C16] font-serif">Recycle Bin</h2>
+              <p className="text-xs text-gray-500">Restore or permanently remove deleted records</p>
             </div>
+            
+            {/* TOGGLE BUTTONS WITH NUMBER BADGES ADDED */}
+            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
+              <button 
+                onClick={() => setBinFilter("cultural")}
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${binFilter === "cultural" ? "bg-white text-[#4A0C16] shadow-sm" : "text-gray-500 hover:text-[#4A0C16]"}`}
+              >
+                <span>Cultural Items</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${binFilter === "cultural" ? "bg-red-500 text-white" : "bg-gray-200 text-gray-600"}`}>
+                  {binnedCulturalItems.length}
+                </span>
+              </button>
+              <button 
+                onClick={() => setBinFilter("proverb")}
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${binFilter === "proverb" ? "bg-white text-[#4A0C16] shadow-sm" : "text-gray-500 hover:text-[#4A0C16]"}`}
+              >
+                <span>Proverbs</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${binFilter === "proverb" ? "bg-red-500 text-white" : "bg-gray-200 text-gray-600"}`}>
+                  {binnedProverbs.length}
+                </span>
+              </button>
+            </div>
+          </div>
 
-            {activeBinItems.length === 0 ? (
-              <div className="bg-white/60 backdrop-blur-sm p-16 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center justify-center max-w-lg mx-auto">
-                <Trash2 className="w-10 h-10 text-gray-200 mb-2" />
-                <p className="text-gray-400 text-sm font-medium">Bin directory is currently empty or no results match your search.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {currentBinViewItems.map(item => (
-                  <div key={item.id} className="bg-white p-4 rounded-2xl border border-red-100 shadow-sm hover:shadow-md transition-all group flex flex-col justify-between">
-                    <div className="flex gap-4">
-                      <div className="w-20 h-20 rounded-xl bg-gray-50 border border-gray-100 overflow-hidden shrink-0 flex items-center justify-center text-red-200">
-                        {binFilter === "cultural" && item.imageUrl ? (
-                          <img src={item.imageUrl} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all" alt="" />
-                        ) : (
-                          binFilter === "cultural" ? <Layers size={24} /> : <Quote size={24} />
-                        )}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[9px] font-black uppercase tracking-tighter text-red-400 bg-red-50 px-1.5 py-0.5 rounded inline-block mb-1">
-                          Deleted {item.deletedAt ? new Date(item.deletedAt.seconds ? item.deletedAt.seconds * 1000 : item.deletedAt).toLocaleDateString() : 'Recently'}
-                        </span>
-                        <h4 className="font-bold text-[#4A0C16] text-sm truncate mt-1">
-                          {binFilter === "cultural" ? item.title : (item.proverb || "Untitled Proverb")}
-                        </h4>
-                        <p className="text-[10px] text-gray-400 mt-1 line-clamp-2 leading-tight">
-                          {binFilter === "cultural" ? item.description : item.meaning}
-                        </p>
-                      </div>
+          {activeBinItems.length === 0 ? (
+            <div className="bg-white/60 backdrop-blur-sm p-16 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center justify-center max-w-lg mx-auto">
+              <Trash2 className="w-10 h-10 text-gray-200 mb-2" />
+              <p className="text-gray-400 text-sm font-medium">Bin directory is currently empty or no results match your search.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {currentBinViewItems.map(item => (
+                <div key={item.id} className="bg-white p-4 rounded-2xl border border-red-100 shadow-sm hover:shadow-md transition-all group flex flex-col justify-between">
+                  <div className="flex gap-4">
+                    <div className="w-20 h-20 rounded-xl bg-gray-50 border border-gray-100 overflow-hidden shrink-0 flex items-center justify-center text-red-200">
+                      {binFilter === "cultural" && item.imageUrl ? (
+                        <img src={item.imageUrl} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all" alt="" />
+                      ) : (
+                        binFilter === "cultural" ? <Layers size={24} /> : <Quote size={24} />
+                      )}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-gray-50">
-                      <button 
-                        onClick={() => {
-                          const isProverb = binFilter === "proverb";
-                          changePage(isProverb ? "proverbdetail" : "itemdetail", { 
-                            itemId: item.id, 
-                            fromPage: "dashboard", 
-                            role: "admin",
-                            itemType: binFilter 
-                          });
-                        }}
-                        className="bg-gray-100 hover:bg-gray-200 text-[#4A0C16] py-2 rounded-lg text-[10px] font-bold transition-colors text-center flex justify-center items-center gap-1"
-                      >
-                        <BookOpen size={10} /> View
-                      </button>
-
-                      <button 
-                        disabled={isSubmitting}
-                        onClick={() => handleRestoreFromBin(item)}
-                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-[10px] font-bold transition-colors flex items-center justify-center gap-1 disabled:opacity-50"
-                      >
-                        {isSubmitting ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
-                        Restore
-                      </button>
-
-                      <button 
-                        disabled={isSubmitting}
-                        onClick={() => handlePermanentDelete(item.id)}
-                        className="bg-red-50 hover:bg-red-600 hover:text-white text-red-600 py-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1 disabled:opacity-50"
-                      >
-                        {isSubmitting ? <Loader2 size={10} className="animate-spin" /> : <AlertTriangle size={10} />}
-                        Delete
-                      </button>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[9px] font-black uppercase tracking-tighter text-red-400 bg-red-50 px-1.5 py-0.5 rounded inline-block mb-1">
+                        Deleted {item.deletedAt ? new Date(item.deletedAt.seconds ? item.deletedAt.seconds * 1000 : item.deletedAt).toLocaleDateString() : 'Recently'}
+                      </span>
+                      <h4 className="font-bold text-[#4A0C16] text-sm truncate mt-1">
+                        {binFilter === "cultural" ? item.title : (item.proverb || "Untitled Proverb")}
+                      </h4>
+                      <p className="text-[10px] text-gray-400 mt-1 line-clamp-2 leading-tight">
+                        {binFilter === "cultural" ? item.description : item.meaning}
+                      </p>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-            
-            {renderPaginationSlider(binPage, setBinPage, activeBinItems.length, itemsPerPage)}
-          </div>
-        )}
+
+                  <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-gray-50">
+                    <button 
+                      onClick={() => {
+                        const isProverb = binFilter === "proverb";
+                        changePage(isProverb ? "proverbdetail" : "itemdetail", { 
+                          itemId: item.id, 
+                          fromPage: "dashboard", 
+                          role: "admin",
+                          itemType: binFilter 
+                        });
+                      }}
+                      className="bg-gray-100 hover:bg-gray-200 text-[#4A0C16] py-2 rounded-lg text-[10px] font-bold transition-colors text-center flex justify-center items-center gap-1 cursor-pointer"
+                    >
+                      <BookOpen size={10} /> View
+                    </button>
+
+                    <button 
+                      disabled={isSubmitting}
+                      onClick={() => handleRestoreFromBin(item)}
+                      className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-[10px] font-bold transition-colors flex items-center justify-center gap-1 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isSubmitting ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                      Restore
+                    </button>
+
+                    <button 
+                      disabled={isSubmitting}
+                      onClick={() => handlePermanentDelete(item.id)}
+                      className="bg-red-50 hover:bg-red-600 hover:text-white text-red-600 py-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isSubmitting ? <Loader2 size={10} className="animate-spin" /> : <AlertTriangle size={10} />}
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {renderPaginationSlider(binPage, setBinPage, activeBinItems.length, itemsPerPage)}
+        </div>
+      )}
 
       </div>
 

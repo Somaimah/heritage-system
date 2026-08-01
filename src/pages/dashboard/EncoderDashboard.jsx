@@ -2,13 +2,44 @@ import React, { useEffect, useState, useMemo } from "react";
 import { auth, db } from "../../firebase/firebase";
 import { doc, onSnapshot } from "firebase/firestore"; 
 import {
-  BookOpen, Upload, Archive, RotateCcw, Sparkles, Search, LayoutDashboard, ChevronLeft, ChevronRight, Quote, Clock, Edit3
+  BookOpen, Upload, Archive, RotateCcw, Sparkles, Search, LayoutDashboard, ChevronLeft, ChevronRight, Quote, Clock, Edit3, AlertCircle
 } from "lucide-react";
 
 import MasterDashboardShell from "../../components/MasterDashboardShell";
 import WordOfTheDayConsole from "../../pages/dashboard/WordOfTheDayConsole";
 import ConfirmationModal from "../../components/ConfirmationModal";
 import { useSystemData } from "../../hooks/useSystemData"; 
+
+// 📅 HELPER TO SAFELY FORMAT FIRESTORE TIMESTAMPS OR DATES
+const formatDate = (dateField) => {
+  if (!dateField) return "N/A";
+  let dateObj;
+  if (dateField.toDate) {
+    dateObj = dateField.toDate();
+  } else if (dateField.seconds) {
+    dateObj = new Date(dateField.seconds * 1000);
+  } else {
+    dateObj = new Date(dateField);
+  }
+  
+  if (isNaN(dateObj.getTime())) return "N/A";
+
+  return dateObj.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+};
+
+// ⏱️ HELPER TO CONVERT ANY FIRESTORE TIMESTAMP TO MILLISECONDS SAFELY
+const getMillis = (dateField) => {
+  if (!dateField) return 0;
+  if (typeof dateField.toMillis === "function") return dateField.toMillis();
+  if (typeof dateField.seconds === "number") return dateField.seconds * 1000;
+  if (typeof dateField.toDate === "function") return dateField.toDate().getTime();
+  const parsed = new Date(dateField).getTime();
+  return isNaN(parsed) ? 0 : parsed;
+};
 
 const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   // ================= SYSTEM DATA INTEGRATION =================
@@ -29,12 +60,13 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   const [showWord, setShowWord] = useState(false); 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [submissionStatus, setSubmissionStatus] = useState("all");
   const [revisionType, setRevisionType] = useState(() => {
     return sessionStorage.getItem("encoder_revision_type") || "cultural";
   });
   const [todayWordData, setTodayWordData] = useState(null);
 
-  const categories = ["all", "Artifact", "Historical Record", "Publication"];
+  const categories = ["all", "Artifact", "Historical Records", "Publication"];
   const [currentPage, setCurrentPage] = useState(1);
   
   const isProverbView = tab === "posted_proverbs" || (tab === "returned" && revisionType === "proverb");
@@ -77,10 +109,10 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     sessionStorage.setItem("encoder_revision_type", revisionType);
   }, [revisionType]);
 
-  // ✅ Reset pagination to Page 1 whenever view filters change to prevent empty slices
+  // Reset pagination to Page 1 whenever view filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [tab, selectedCategory, revisionType, searchQuery]);
+  }, [tab, selectedCategory, revisionType, searchQuery, submissionStatus]);
   
   // ================= WORD OF THE DAY LOADER =================
   useEffect(() => {
@@ -97,11 +129,10 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   // ================= STATS LOGIC =================
   const statsMetrics = useMemo(() => {
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfTodayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
     const uploadedToday = [...items, ...proverbItems].filter(i => {
-      const createdAt = i.createdAt?.toDate ? i.createdAt.toDate() : null;
-      return createdAt && createdAt >= startOfToday;
+      return getMillis(i.createdAt) >= startOfTodayMs;
     }).length;
 
     const returnedItems = [...items, ...proverbItems].filter(i => i.status === "returned");
@@ -110,18 +141,18 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     
     if (returnedItems.length > 0) {
       const oldestReturned = returnedItems.sort((a, b) => {
-        const timeA = a.updatedAt?.toMillis() || a.createdAt?.toMillis() || 0;
-        const timeB = b.updatedAt?.toMillis() || b.createdAt?.toMillis() || 0;
+        const timeA = getMillis(a.updatedAt) || getMillis(a.createdAt);
+        const timeB = getMillis(b.updatedAt) || getMillis(b.createdAt);
         return timeA - timeB;
       })[0];
       
       revisionItemName = oldestReturned.title || oldestReturned.proverb || "Untitled Item";
       
-      const oldestDate = oldestReturned.updatedAt?.toDate() || oldestReturned.createdAt?.toDate();
-      if (oldestDate) {
-        const diffInMs = now - oldestDate;
+      const oldestTime = getMillis(oldestReturned.updatedAt) || getMillis(oldestReturned.createdAt);
+      if (oldestTime > 0) {
+        const diffInMs = now.getTime() - oldestTime;
         const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-        daysPassedStr = diffInDays === 0 ? "Returned Today" : `${diffInDays} Day${diffInDays > 1 ? 's' : ''} Ago`;
+        daysPassedStr = diffInDays <= 0 ? "Returned Today" : `${diffInDays} Day${diffInDays > 1 ? 's' : ''} Ago`;
       }
     }
 
@@ -157,32 +188,50 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
   // Item subsets for Tabs
   const postedItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "posted"), [filteredCulturalItems]);
   
-  // ✅ Correctly combine both Cultural Items and Proverbs in the Submission track
+  // MY SUBMISSIONS: FILTERED BY STATUS & SORTED BY MOST RECENT FIRST
   const submissionItems = useMemo(() => {
     const culturalSubs = filteredCulturalItems.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status));
     const proverbSubs = filteredProverbItems.filter(i => ["pending", "pending_moderation", "returned", "posted", "approved", "published"].includes(i.status));
-    return [...culturalSubs, ...proverbSubs];
-  }, [filteredCulturalItems, filteredProverbItems]);
+    
+    let combined = [...culturalSubs, ...proverbSubs];
+
+    // Filter by Dropdown Status
+    if (submissionStatus !== "all") {
+      combined = combined.filter(i => {
+        const stat = (i.status || "").toLowerCase();
+        if (submissionStatus === "pending") return ["pending", "pending_moderation", "validated"].includes(stat);
+        if (submissionStatus === "posted") return ["posted", "approved", "published"].includes(stat);
+        if (submissionStatus === "returned") return stat === "returned";
+        return true;
+      });
+    }
+
+    // Sort Most Recent First
+    return combined.sort((a, b) => getMillis(b.createdAt) - getMillis(a.createdAt));
+  }, [filteredCulturalItems, filteredProverbItems, submissionStatus]);
 
   const returnedCulturalItems = useMemo(() => filteredCulturalItems.filter(i => i.status === "returned"), [filteredCulturalItems]);
   const returnedProverbItems = useMemo(() => filteredProverbItems.filter(i => i.status === "returned"), [filteredProverbItems]);
   const postedProverbs = useMemo(() => filteredProverbItems.filter(i => ["posted", "approved", "published"].includes((i.status || "").toLowerCase())), [filteredProverbItems]); 
 
+  // 🔴 CATEGORY BADGE COUNTS FOR REVISION TAB
+  const culturalReturnedCount = useMemo(() => items.filter(i => i.status === "returned").length, [items]);
+  const proverbReturnedCount = useMemo(() => proverbItems.filter(i => i.status === "returned").length, [proverbItems]);
+
   // ================= SIDEBAR LINKS =================
   const encoderLinks = useMemo(() => {
     const totalPostedItemsCount = items.filter(i => i.status === "posted").length; 
+    const totalPostedProverbsCount = proverbItems.filter(i => ["posted", "approved", "published"].includes((i.status || "").toLowerCase())).length; 
     
-    // ✅ Reflects combined submissions count accurately
     const totalSubmissionsCount = items.filter(i => ["pending", "validated", "returned", "posted"].includes(i.status)).length +
                                   proverbItems.filter(i => ["pending", "pending_moderation", "returned", "posted", "approved", "published"].includes(i.status)).length;
                                   
-    const totalPostedProverbsCount = proverbItems.filter(i => ["posted", "approved", "published"].includes((i.status || "").toLowerCase())).length; 
     const totalReturnedBaseCount = items.filter(i => i.status === "returned").length + proverbItems.filter(i => i.status === "returned").length;
 
     return [
       { value: "posted", label: "Cultural Archive", icon: <Archive size={16} />, badge: totalPostedItemsCount },
-      { value: "submissions", label: "My Submissions", icon: <LayoutDashboard size={16} />, badge: totalSubmissionsCount },
       { value: "posted_proverbs", label: "Posted Proverbs", icon: <Quote size={16} />, badge: totalPostedProverbsCount },
+      { value: "submissions", label: "My Submissions", icon: <LayoutDashboard size={16} />, badge: totalSubmissionsCount },
       { value: "returned", label: "Needs Revision", icon: <RotateCcw size={16} />, badge: totalReturnedBaseCount > 0 ? totalReturnedBaseCount : undefined }
     ];
   }, [items, proverbItems]);
@@ -224,7 +273,7 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
     <MasterDashboardShell
       userRole="encoder"
       userName={auth.currentUser?.displayName || auth.currentUser?.email?.split("@")[0]}
-      userPhoto={auth.currentUser?.photoURL} // ✅ ADDED THIS PROP HERE
+      userPhoto={auth.currentUser?.photoURL}
       activeTab={tab}
       setActiveTab={setTab}
       sidebarLinks={encoderLinks}
@@ -232,77 +281,120 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
       onNotificationClick={() => changePage("notifications", { fromPage: "dashboard" })}
       onLogout={triggerLogout}
     >
-      {/* 📊 METRIC OVERVIEW */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-4">
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
-          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Uploaded Today</p>
-          <div className="flex items-baseline gap-2">
-            <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{statsMetrics.uploadedToday}</h2>
-            <span className="text-[10px] text-gray-400 font-bold uppercase">Items created today</span>
+      {/* 📊 METRIC OVERVIEW & ACTIONS - VISIBLE ONLY ON CULTURAL ARCHIVE & POSTED PROVERBS TABS */}
+      {(tab === "posted" || tab === "posted_proverbs") && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-4">
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
+              <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Uploaded Today</p>
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{statsMetrics.uploadedToday}</h2>
+                <span className="text-[10px] text-gray-400 font-bold uppercase">Items created today</span>
+              </div>
+            </div>
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300 flex flex-col justify-center overflow-hidden">
+              <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider mb-1">Need to Revise</p>
+              <h2 className={`font-black text-[#4A0C16] font-serif truncate mt-1 ${statsMetrics.returnedCount > 0 ? 'text-lg' : 'text-3xl'}`} title={statsMetrics.revisionItemName}>{statsMetrics.revisionItemName}</h2>
+              <div className="flex items-center gap-1.5 mt-1">
+                <Clock size={10} className={statsMetrics.returnedCount > 0 ? "text-red-500" : "text-gray-400"} />
+                <span className={`text-[10px] font-bold uppercase ${statsMetrics.returnedCount > 0 ? "text-red-600" : "text-gray-400"}`}>{statsMetrics.daysPassedStr}</span>
+              </div>
+            </div>
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
+              <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Total Posted</p>
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{statsMetrics.totalPosted}</h2>
+                <span className="text-[10px] text-gray-400 font-bold uppercase">Live on platform</span>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300 flex flex-col justify-center overflow-hidden">
-          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider mb-1">Need to Revise</p>
-          <h2 className={`font-black text-[#4A0C16] font-serif truncate mt-1 ${statsMetrics.returnedCount > 0 ? 'text-lg' : 'text-3xl'}`} title={statsMetrics.revisionItemName}>{statsMetrics.revisionItemName}</h2>
-          <div className="flex items-center gap-1.5 mt-1">
-            <Clock size={10} className={statsMetrics.returnedCount > 0 ? "text-red-500" : "text-gray-400"} />
-            <span className={`text-[10px] font-bold uppercase ${statsMetrics.returnedCount > 0 ? "text-red-600" : "text-gray-400"}`}>{statsMetrics.daysPassedStr}</span>
+
+          <hr className="mb-4 border-t border-[#E09F26]/10" />
+
+          {/* ⚡ ACTION BAR */}
+          <div className="flex flex-wrap gap-3 mb-5">
+            <button onClick={() => changePage("upload")} className="bg-[#4A0C16] text-white px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-[#31080E] transition shadow-sm border border-[#4A0C16] cursor-pointer">
+              <Upload size={14} /> Upload Cultural Item
+            </button>
+            <button onClick={() => changePage("uploadProverb")} className="bg-emerald-700 text-white px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-emerald-800 transition shadow-sm border border-emerald-700 cursor-pointer">
+              <Quote size={14} /> Upload Proverb
+            </button>
+            <button onClick={() => setShowWord(!showWord)} className="bg-[#E09F26] text-[#4A0C16] px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-[#c98a1e] transition shadow-sm border border-[#E09F26] cursor-pointer">
+              {showWord ? <><Sparkles size={14} /> Close Console</> : todayWordData ? <><Edit3 size={14} /> Edit Word of the Day</> : <><Sparkles size={14} /> Set Word of the Day</>}
+            </button>
           </div>
-        </div>
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
-          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Total Posted</p>
-          <div className="flex items-baseline gap-2">
-            <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{statsMetrics.totalPosted}</h2>
-            <span className="text-[10px] text-gray-400 font-bold uppercase">Live on platform</span>
-          </div>
-        </div>
-      </div>
 
-      <hr className="mb-4 border-t border-[#E09F26]/10" />
+          {showWord && (
+            <WordOfTheDayConsole 
+              onClose={() => setShowWord(false)} 
+              requestConfirm={requestWotdConfirm} 
+              existingData={todayWordData}
+            />
+          )}
 
-      {/* ⚡ ACTION BAR */}
-      <div className="flex flex-wrap gap-3 mb-5">
-        <button onClick={() => changePage("upload")} className="bg-[#4A0C16] text-white px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-[#31080E] transition shadow-sm border border-[#4A0C16]">
-          <Upload size={14} /> Upload Cultural Item
-        </button>
-        <button onClick={() => changePage("uploadProverb")} className="bg-emerald-700 text-white px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-emerald-800 transition shadow-sm border border-emerald-700">
-          <Quote size={14} /> Upload Proverb
-        </button>
-        <button onClick={() => setShowWord(!showWord)} className="bg-[#E09F26] text-[#4A0C16] px-5 py-3 rounded-2xl flex items-center gap-2 text-xs font-bold hover:bg-[#c98a1e] transition shadow-sm border border-[#E09F26]">
-          {showWord ? <><Sparkles size={14} /> Close Console</> : todayWordData ? <><Edit3 size={14} /> Edit Word of the Day</> : <><Sparkles size={14} /> Set Word of the Day</>}
-        </button>
-      </div>
-
-      {showWord && (
-        <WordOfTheDayConsole 
-          onClose={() => setShowWord(false)} 
-          requestConfirm={requestWotdConfirm} 
-          existingData={todayWordData}
-        />
+          <hr className="mb-6 border-t border-[#E09F26]/10" />
+        </>
       )}
 
-      <hr className="mb-6 border-t border-[#E09F26]/10" />
+      {/* 🔍 SEARCH & FILTERS (HIDDEN ON NEEDS REVISION TAB) */}
+      {tab !== "returned" && (
+        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+          <div className="relative flex-1 group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#E09F26]" size={16} />
+            <input type="text" placeholder="Search entries, descriptions, or metadata tags..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-11 pr-4 py-3 rounded-2xl border border-[#E09F26]/20 focus:border-[#E09F26] outline-none bg-white text-sm transition-all" />
+          </div>
 
-      {/* 🔍 SEARCH & FILTERS */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
-        <div className="relative flex-1 group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#E09F26]" size={16} />
-          <input type="text" placeholder="Search entries, descriptions, or metadata tags..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-11 pr-4 py-3 rounded-2xl border border-[#E09F26]/20 focus:border-[#E09F26] outline-none bg-white text-sm transition-all" />
+          {/* Category Dropdown (Shown on Cultural Archive tab) */}
+          {tab === "posted" && (
+            <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="px-4 py-3 rounded-2xl border border-[#E09F26]/20 bg-white text-sm font-bold text-[#4A0C16] outline-none cursor-pointer">
+              {categories.map(cat => <option key={cat} value={cat}>{cat === "all" ? "All Categories" : cat}</option>)}
+            </select>
+          )}
+
+          {/* Status Dropdown (Shown ONLY on My Submissions tab) */}
+          {tab === "submissions" && (
+            <select value={submissionStatus} onChange={(e) => setSubmissionStatus(e.target.value)} className="px-4 py-3 rounded-2xl border border-[#E09F26]/20 bg-white text-sm font-bold text-[#4A0C16] outline-none cursor-pointer">
+              <option value="all">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="posted">Posted</option>
+              <option value="returned">Returned</option>
+            </select>
+          )}
         </div>
-        {tab !== "posted_proverbs" && tab !== "returned" && (
-          <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="px-4 py-3 rounded-2xl border border-[#E09F26]/20 bg-white text-sm font-bold text-[#4A0C16] outline-none cursor-pointer">
-            {categories.map(cat => <option key={cat} value={cat}>{cat === "all" ? "All Categories" : cat}</option>)}
-          </select>
-        )}
-      </div>
-
+      )}
+      
+      {/* 🔴 NEEDS REVISION CATEGORY SELECTOR WITH COUNT BADGES */}
       {tab === "returned" && (
         <div className="flex gap-2 mb-6 p-1 bg-gray-100/50 rounded-2xl w-fit border border-gray-100">
-          {["cultural", "proverb"].map(type => (
-            <button key={type} onClick={() => {setRevisionType(type); setCurrentPage(1);}} className={`px-6 py-2 rounded-xl text-xs font-bold transition-all ${revisionType === type ? "bg-[#4A0C16] text-white shadow-md" : "text-gray-500 hover:text-[#4A0C16]"}`}>
-              {type === "cultural" ? "Cultural Items" : "Proverbs"}
-            </button>
-          ))}
+          {["cultural", "proverb"].map(type => {
+            const count = type === "cultural" ? culturalReturnedCount : proverbReturnedCount;
+            const isActive = revisionType === type;
+
+            return (
+              <button 
+                key={type} 
+                onClick={() => { setRevisionType(type); setCurrentPage(1); }} 
+                className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  isActive ? "bg-[#4A0C16] text-white shadow-md" : "text-gray-500 hover:text-[#4A0C16]"
+                }`}
+              >
+                <span>{type === "cultural" ? "Cultural Items" : "Proverbs"}</span>
+                
+                {/* 🔴 Count Badge */}
+                <span 
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold transition-all ${
+                    isActive 
+                      ? "bg-red-500 text-white" 
+                      : count > 0 
+                        ? "bg-red-500 text-white animate-pulse" 
+                        : "bg-gray-200 text-gray-500"
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -313,6 +405,7 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
         ) : (
           <div className={`grid gap-5 animate-fadeIn ${tab === "submissions" ? "grid-cols-1" : isProverbView ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"}`}>
             
+            {/* CULTURAL ITEMS GRID */}
             {(!isProverbView && tab !== "submissions") && paginatedItems.map(item => (
               <div key={item.id} className="bg-white rounded-3xl overflow-hidden border border-[#E09F26]/20 flex flex-col hover:border-[#E09F26]/50 transition-all group shadow-xs">
                 <div className="h-36 relative bg-gray-50 border-b border-gray-100 overflow-hidden">
@@ -321,16 +414,26 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
                 </div>
                 <div className="p-4 flex flex-col flex-1">
                   <span className="text-[8px] font-black uppercase text-[#E09F26] mb-1 tracking-widest">{item.category}</span>
-                  <h3 className="font-bold text-[#4A0C16] text-sm line-clamp-2 font-serif mb-4 leading-tight">{item.title}</h3>
-                  <button onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "encoder" })} className="w-full mt-auto bg-gray-50 text-[#4A0C16] py-2.5 rounded-xl text-[10px] font-bold hover:bg-[#4A0C16] hover:text-white transition-all border border-gray-100">
-                    View
+                  <h3 className="font-bold text-[#4A0C16] text-sm line-clamp-2 font-serif mb-2 leading-tight">{item.title}</h3>
+                  
+                  {/* Show Return Reason if present */}
+                  {item.status === "returned" && (item.returnReason || item.rejectionReason) && (
+                    <div className="mb-3 p-2 bg-red-50 rounded-lg border border-red-100 text-[10px] text-red-600 flex items-start gap-1">
+                      <AlertCircle size={12} className="shrink-0 mt-0.5" />
+                      <p className="line-clamp-2">{item.returnReason || item.rejectionReason}</p>
+                    </div>
+                  )}
+
+                  <button onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "encoder" })} className="w-full mt-auto bg-gray-50 text-[#4A0C16] py-2.5 rounded-xl text-[10px] font-bold hover:bg-[#4A0C16] hover:text-white transition-all border border-gray-100 cursor-pointer">
+                    View & Edit
                   </button>
                 </div>
               </div>
             ))}
 
+            {/* PROVERBS GRID */}
             {isProverbView && paginatedItems.map(item => (
-              <div key={item.id} onClick={() => changePage("proverbdetail", { itemId: item.id, role: "encoder", isPending: item.status === "pending_moderation" })} className="bg-white rounded-3xl flex flex-col shadow-xs border border-[#E09F26]/20 hover:border-[#E09F26]/80 hover:shadow-lg transition-all duration-300 h-[200px] p-6 cursor-pointer group relative overflow-hidden">
+              <div key={item.id} onClick={() => changePage("proverbdetail", { itemId: item.id, role: "encoder", isPending: item.status === "pending_moderation" })} className="bg-white rounded-3xl flex flex-col shadow-xs border border-[#E09F26]/20 hover:border-[#E09F26]/80 hover:shadow-lg transition-all duration-300 min-h-[200px] p-6 cursor-pointer group relative overflow-hidden">
                 <div className="flex justify-between items-start mb-3">
                   <span className="text-[9px] bg-[#FEF9C3] text-[#A16207] px-2.5 py-1 rounded-lg border border-[#FEF08A] font-black uppercase tracking-widest">{item.category || "Proverb"}</span>
                   {item.status === "returned" && <span className="text-[8px] bg-red-600 text-white px-2 py-0.5 rounded font-black tracking-widest uppercase">REVISION</span>}
@@ -342,41 +445,61 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
                     <p className="text-[11px] text-gray-500 line-clamp-2 font-medium leading-relaxed">{item.meaning}</p>
                   </div>
                 </div>
+
+                {/* Show Return Reason if present */}
+                {item.status === "returned" && (item.returnReason || item.rejectionReason) && (
+                  <div className="mt-3 p-2 bg-red-50 rounded-lg border border-red-100 text-[10px] text-red-600 flex items-start gap-1">
+                    <AlertCircle size={12} className="shrink-0 mt-0.5" />
+                    <p className="line-clamp-1">{item.returnReason || item.rejectionReason}</p>
+                  </div>
+                )}
+
                 <div className="mt-auto pt-3 border-t border-gray-50 flex justify-end">
                    <span className="text-[9px] font-black text-[#E09F26] uppercase tracking-widest group-hover:text-[#4A0C16] transition-colors">Open Profile &rarr;</span>
                 </div>
               </div>
             ))}
 
+            {/* 🟢 CLICKABLE SUBMISSIONS TABLE WITH DATE COLUMN */}
             {tab === "submissions" && (
               <div className="bg-white rounded-3xl border border-[#E09F26]/20 overflow-hidden shadow-sm">
                 <table className="w-full text-left table-fixed">
                   <thead className="bg-[#4A0C16] text-[#E09F26] text-[9px] font-black uppercase tracking-widest">
                     <tr>
-                      <th className="p-5 pl-8 w-2/3">Resource Title / Proverb</th>
-                      <th className="p-5 w-1/3">Registry Status</th>
+                      <th className="p-5 pl-8 w-1/2">Resource Title / Proverb</th>
+                      <th className="p-5 w-1/4">Registry Status</th>
+                      <th className="p-5 w-1/4">Date Submitted</th>
                     </tr>
                   </thead>
                   <tbody className="text-xs">
-                    {paginatedItems.map(item => (
-                      <tr key={item.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
-                        {/* ✅ Added truncate rules and a title attribute for tooltips */}
-                        <td 
-                          className="p-5 pl-8 font-bold text-[#4A0C16] font-serif text-sm truncate max-w-xs md:max-w-md" 
-                          title={item.title || item.proverb}
+                    {paginatedItems.map(item => {
+                      const isProverb = Boolean(item.proverb);
+                      return (
+                        <tr 
+                          key={item.id} 
+                          onClick={() => changePage(isProverb ? "proverbdetail" : "itemdetail", { itemId: item.id, role: "encoder" })}
+                          className="border-b border-gray-50 last:border-0 hover:bg-amber-50/40 transition-colors cursor-pointer"
                         >
-                          {item.title || item.proverb}
-                        </td>
-                        <td className="p-5">
-                          <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border whitespace-nowrap ${
-                            item.status === 'returned' ? 'bg-red-50 text-red-600 border-red-100' : 
-                            ['posted', 'approved', 'published'].includes(item.status) ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-[#FEF9C3] text-[#A16207] border-[#FEF08A]'
-                          }`}>
-                            {item.status.replace("_", " ")}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                          <td 
+                            className="p-5 pl-8 font-bold text-[#4A0C16] font-serif text-sm truncate max-w-xs md:max-w-md" 
+                            title={item.title || item.proverb}
+                          >
+                            {item.title || item.proverb}
+                          </td>
+                          <td className="p-5">
+                            <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border whitespace-nowrap ${
+                              item.status === 'returned' ? 'bg-red-50 text-red-600 border-red-100' : 
+                              ['posted', 'approved', 'published'].includes(item.status) ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-[#FEF9C3] text-[#A16207] border-[#FEF08A]'
+                            }`}>
+                              {item.status.replace("_", " ")}
+                            </span>
+                          </td>
+                          <td className="p-5 font-bold text-gray-500 whitespace-nowrap">
+                            {formatDate(item.createdAt)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -40,7 +40,7 @@ const Loader = ({ size = "md", inline = false }) => {
       
       {!inline && (
         <span className="text-[10px] font-bold tracking-[0.2em] text-[#4A0C16] uppercase animate-pulse opacity-90 mt-1">
-          Securing Archival Ledger
+          Loading, Please wait
         </span>
       )}
     </div>

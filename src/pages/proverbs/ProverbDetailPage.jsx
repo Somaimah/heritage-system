@@ -6,12 +6,13 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
-  addDoc,      // Added for notifications
-  collection   // Added for notifications
+  addDoc,
+  collection
 } from "firebase/firestore";
 import {
   Quote, AlertCircle, Trash2, CheckCircle, XCircle,
-  MessageSquare, Edit3, Save, Loader2, RotateCcw, Volume2, X, Eye
+  MessageSquare, Edit3, Save, Loader2, RotateCcw, Volume2, X, Eye,
+  Sparkles, BookOpen, ShieldCheck
 } from "lucide-react";
 
 import { useToast } from "../../contexts/ToastContext";
@@ -26,13 +27,17 @@ import {
   incrementItemView
 } from "../../utils/archiveUtils";
 
-// Reusable Stat Card matching ItemDetailPage
+// Reusable Stat Card
 const InfoCard = ({ label, value, icon: Icon }) => (
-  <div className="bg-gray-50/60 border border-gray-100 rounded-2xl p-4 transition-all duration-300 hover:bg-white hover:shadow-[0_4px_20px_-4px_rgba(74,12,22,0.05)] flex items-center gap-4">
-    {Icon && <div className="bg-[#4A0C16]/5 p-3 rounded-xl"><Icon size={20} className="text-[#E09F26]" /></div>}
+  <div className="bg-white/80 border border-[#E09F26]/20 rounded-2xl p-4 transition-all duration-300 hover:shadow-sm flex items-center gap-4">
+    {Icon && (
+      <div className="bg-[#4A0C16]/5 p-3 rounded-xl border border-[#4A0C16]/10">
+        <Icon size={18} className="text-[#E09F26]" />
+      </div>
+    )}
     <div>
       <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-0.5">{label}</p>
-      <p className="font-semibold text-gray-800 text-sm leading-relaxed">{value || "Not specified"}</p>
+      <p className="font-semibold text-[#4A0C16] text-sm leading-relaxed">{value || "Not specified"}</p>
     </div>
   </div>
 );
@@ -42,12 +47,12 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [processing, setProcessing] = useState(false);
- 
+  
   // Input States
   const [editedProverb, setEditedProverb] = useState("");
   const [editedMeaning, setEditedMeaning] = useState("");
   const [feedback, setFeedback] = useState("");
- 
+  
   const { showToast } = useToast();
 
   // --- MODAL STATE ---
@@ -67,8 +72,8 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
         if (docSnap.exists()) {
           const data = { id: docSnap.id, ...docSnap.data() };
           setItem(data);
-          setEditedProverb(data.proverb || "");
-          setEditedMeaning(data.meaning || "");
+          setEditedProverb(data.proverb || data.meranawText || "");
+          setEditedMeaning(data.meaning || data.englishTranslation || "");
         } else {
           showToast("Proverb not found.", "error");
           changePage("dashboard");
@@ -121,15 +126,12 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
     setProcessing(true);
     try {
       const itemRef = doc(db, targetCollection, itemId);
-      
-      // 1. Update the document status
       await updateDoc(itemRef, {
         isDeleted: false,
         status: "pending_moderation",
         updatedAt: serverTimestamp()
       });
 
-      // 2. Explicitly create the notification for the moderator
       await addDoc(collection(db, "notifications"), {
         targetRole: "moderator",
         message: `System Admin restored the Proverb "${item?.proverb || 'Data'}". Please re-evaluate.`,
@@ -198,16 +200,21 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
   if (loading) return <div className="min-h-screen bg-[#FEF9C3] flex justify-center pt-32"><Loader2 className="animate-spin text-[#E09F26]" size={40} /></div>;
   if (!item) return null;
 
-  // 🟢 SAFE STRINGS & PERMISSIONS
+  // SAFE STRINGS & ROLE PERMISSIONS
   const safeRole = role ? role.toLowerCase() : "";
   const safeStatus = item?.status ? item.status.toLowerCase() : "";
-  const hideInternalStats = safeRole === "user" || safeRole === "guest";
+  
+  // Status tag is strictly hidden for public users (user/guest)
+  const isStaffOrAdmin = ["admin", "moderator", "staff", "encoder"].includes(safeRole);
 
   return (
     <div className="min-h-screen bg-[#FEF9C3] font-sans antialiased pb-12">
       
-      {/* HEADER BANNER MATCHING ITEM DETAIL */}
-      <div className="w-full h-8 bg-[#E09F26] border-b border-[#4A0C16]/30 shadow-sm" style={{ backgroundImage: `url(${okirPattern})`, backgroundRepeat: 'repeat-x', backgroundSize: 'auto 100%' }} />
+      {/* ORIGINAL HEADER BANNER & OKIR PATTERN */}
+      <div 
+        className="w-full h-8 bg-[#E09F26] border-b border-[#4A0C16]/30 shadow-sm" 
+        style={{ backgroundImage: `url(${okirPattern})`, backgroundRepeat: 'repeat-x', backgroundSize: 'auto 100%' }} 
+      />
       
       <header className="bg-[#4A0C16] text-white px-8 py-6 flex items-center shadow-md mb-8">
         <div className="max-w-4xl w-full mx-auto flex justify-between items-center">
@@ -215,7 +222,10 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
             <h1 className="text-2xl font-bold font-serif tracking-wide">Proverb Detail</h1>
             <p className="text-[10px] text-[#E09F26] uppercase tracking-widest font-semibold mt-0.5">MCHC Digital Archive</p>
           </div>
-          <button onClick={() => changePage("dashboard")} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+          <button 
+            onClick={() => changePage("dashboard")} 
+            className="p-2 hover:bg-white/10 rounded-full transition-colors"
+          >
             <X size={24} />
           </button>
         </div>
@@ -223,133 +233,218 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
 
       {/* MAIN CONTENT CONTAINER */}
       <div className="max-w-4xl mx-auto p-4 md:px-8 animate-fadeIn">
-        <div className="bg-white rounded-[40px] shadow-2xl border border-[#E09F26]/20 overflow-hidden">
+        <div className="bg-white rounded-[32px] shadow-xl border border-[#E09F26]/30 overflow-hidden">
           
-          <div className="p-8 md:p-12">
+          <div className="p-6 md:p-10">
             
-            {/* TAGS */}
-            <div className="flex flex-wrap gap-3 mb-8">
-              <span className="px-4 py-2 bg-[#FEF9C3] text-[#A16207] rounded-full text-[10px] font-black uppercase border border-[#FEF08A] tracking-tighter">{item.category}</span>
-              <span className={`px-4 py-2 rounded-full text-[10px] font-black uppercase border ${safeStatus === 'posted' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : item.isDeleted ? 'bg-red-50 text-red-600 border-red-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
-                Status: {item.isDeleted ? "IN TRASH" : safeStatus.replace('_', ' ')}
-              </span>
+            {/* BADGES & METADATA BAR */}
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <span className="px-3.5 py-1.5 bg-[#FEF9C3] text-[#4A0C16] rounded-lg text-xs font-black uppercase tracking-wider border border-[#E09F26]/40 flex items-center gap-1.5">
+                  <BookOpen size={13} className="text-[#E09F26]" />
+                  {item.category || "PROVERB"}
+                </span>
+
+                {/* Status Badge - Hidden from public users */}
+                {isStaffOrAdmin && (
+                  <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider border flex items-center gap-1.5 ${
+                    safeStatus === 'posted' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                    item.isDeleted ? 'bg-red-50 text-red-700 border-red-200' : 
+                    'bg-amber-50 text-amber-700 border-amber-200'
+                  }`}>
+                    <ShieldCheck size={13} />
+                    Status: {item.isDeleted ? "IN TRASH" : safeStatus.replace('_', ' ')}
+                  </span>
+                )}
+              </div>
+
+              {!isStaffOrAdmin && (
+                <span className="text-xs font-semibold text-[#E09F26] tracking-wide flex items-center gap-1">
+                  <Sparkles size={14} /> MCHC Heritage Collection
+                </span>
+              )}
             </div>
 
-            {/* CONTENT SECTION */}
+            {/* EDITING FORM VS DISPLAY MODE */}
             {isEditing ? (
-              <div className="space-y-6 bg-gray-50/50 p-6 rounded-3xl border border-dashed border-[#E09F26]/30">
+              <div className="space-y-6 bg-amber-50/40 p-6 rounded-2xl border border-[#E09F26]/30">
                 <div>
-                  <label className="text-[10px] font-black text-[#4A0C16] uppercase tracking-widest ml-1">Proverb Text</label>
-                  <textarea value={editedProverb} onChange={(e) => setEditedProverb(e.target.value)} className="w-full mt-2 p-4 text-2xl font-serif italic border-2 border-[#E09F26]/20 rounded-2xl focus:border-[#E09F26] outline-none transition-all shadow-inner" />
+                  <label className="text-xs font-black text-[#4A0C16] uppercase tracking-wider block mb-2">Meranaw Proverb Text</label>
+                  <textarea 
+                    value={editedProverb} 
+                    onChange={(e) => setEditedProverb(e.target.value)} 
+                    className="w-full p-4 text-xl font-serif italic border border-[#E09F26]/30 rounded-xl focus:border-[#E09F26] focus:ring-2 focus:ring-[#E09F26]/20 outline-none bg-white transition-all shadow-xs" 
+                    rows={3}
+                  />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-[#4A0C16] uppercase tracking-widest ml-1">Meaning</label>
-                  <textarea value={editedMeaning} onChange={(e) => setEditedMeaning(e.target.value)} className="w-full mt-2 p-4 text-lg border-2 border-[#E09F26]/20 rounded-2xl focus:border-[#E09F26] outline-none min-h-[140px] shadow-inner" />
+                  <label className="text-xs font-black text-[#4A0C16] uppercase tracking-wider block mb-2">English Meaning / Translation</label>
+                  <textarea 
+                    value={editedMeaning} 
+                    onChange={(e) => setEditedMeaning(e.target.value)} 
+                    className="w-full p-4 text-base border border-[#E09F26]/30 rounded-xl focus:border-[#E09F26] focus:ring-2 focus:ring-[#E09F26]/20 outline-none bg-white transition-all shadow-xs" 
+                    rows={4}
+                  />
                 </div>
-                <div className="flex gap-4 pt-2">
-                  <button onClick={handleSaveRevision} disabled={processing} className="flex-1 bg-[#4A0C16] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-[#31080E] transition-all">
-                    {processing ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />} Submit Changes
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={handleSaveRevision} 
+                    disabled={processing} 
+                    className="flex-1 bg-[#4A0C16] text-white py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#31080E] transition-all shadow-md"
+                  >
+                    {processing ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />} Submit Revision
                   </button>
-                  <button onClick={() => setIsEditing(false)} className="px-8 py-4 bg-white text-gray-500 rounded-2xl font-bold border border-gray-200">Cancel</button>
+                  <button 
+                    onClick={() => setIsEditing(false)} 
+                    className="px-6 py-3.5 bg-white text-gray-600 rounded-xl font-bold text-sm border border-gray-200 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
                 </div>
               </div>
             ) : (
-              <div className="animate-fadeIn">
-                <div className="relative mb-10">
-                  <Quote size={60} className="absolute -top-8 -left-6 text-[#E09F26] opacity-10" />
-                  <h1 className="text-4xl md:text-5xl font-serif font-black text-[#4A0C16] italic leading-tight relative z-10">"{item.proverb}"</h1>
+              <div className="space-y-8">
+                
+                {/* HERO PROVERB SHOWCASE CARD */}
+                <div className="bg-[#4A0C16] text-[#FDF5E6] p-8 md:p-10 rounded-2xl relative overflow-hidden shadow-lg border border-[#E09F26]/40">
+                  <div 
+                    className="absolute inset-0 opacity-15 bg-repeat-x bg-center pointer-events-none" 
+                    style={{ backgroundImage: `url(${okirPattern})`, backgroundSize: 'auto 36px' }} 
+                  />
+                  <Quote size={80} className="absolute -top-4 -left-4 text-[#E09F26] opacity-15 pointer-events-none" />
+
+                  <div className="relative z-10 text-center max-w-3xl mx-auto py-2">
+                    <p className="text-2xl md:text-3xl lg:text-4xl font-serif italic font-medium leading-relaxed tracking-wide text-[#FEF9C3] drop-shadow-xs">
+                      "{item.proverb || item.meranawText}"
+                    </p>
+                  </div>
                 </div>
 
-                {/* --- AUDIO PLAYER SECTION --- */}
+                {/* AUDIO PLAYER */}
                 {item.audioUrl && (
-                  <div className="mb-10 p-5 sm:p-6 bg-[#4A0C16] rounded-[24px] shadow-[0_10px_25px_rgba(74,12,22,0.15)] border border-[#E09F26]/30 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
-                    <div className="bg-gradient-to-br from-[#E09F26] to-[#b37a1a] p-4 rounded-2xl text-[#4A0C16] shrink-0 shadow-inner">
-                      <Volume2 size={28} />
+                  <div className="p-4 sm:p-5 bg-gradient-to-r from-amber-50 to-orange-50/40 rounded-2xl border border-[#E09F26]/30 flex flex-col sm:flex-row items-center gap-4">
+                    <div className="bg-[#4A0C16] p-3 rounded-xl text-[#E09F26] shrink-0 shadow-xs">
+                      <Volume2 size={22} />
                     </div>
-                    <div className="flex-1 w-full z-10">
-                      <p className="text-[#E09F26] text-[11px] font-black uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-[#E09F26] animate-pulse"></span> Audio Pronunciation
+                    <div className="flex-1 w-full">
+                      <p className="text-[#4A0C16] text-[11px] font-black uppercase tracking-widest mb-1.5 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-[#E09F26] animate-pulse" /> Audio Pronunciation
                       </p>
-                      <audio controls className="w-full h-11 rounded-lg">
+                      <audio controls className="w-full h-10 rounded-lg">
                         <source src={item.audioUrl} type="audio/mpeg" />
                         <source src={item.audioUrl} type="audio/ogg" />
                         <source src={item.audioUrl} type="audio/wav" />
-                        Your browser does not support the audio element.
+                        Your browser does not support audio.
                       </audio>
                     </div>
                   </div>
                 )}
 
-                <div className="pl-6 border-l-4 border-[#E09F26]/30">
-                  <h4 className="text-[10px] uppercase tracking-[0.2em] font-black text-[#E09F26] mb-3">Meaning / Translation</h4>
-                  <p className="text-xl text-gray-700 leading-relaxed font-medium italic">{item.meaning}</p>
+                {/* MEANING & TRANSLATION SECTION */}
+                <div className="bg-gray-50/80 p-6 md:p-8 rounded-2xl border border-gray-200/80">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-1.5 h-5 bg-[#E09F26] rounded-full" />
+                    <h3 className="text-xs font-black uppercase tracking-widest text-[#4A0C16]">English Meaning & Insights</h3>
+                  </div>
+                  <p className="text-gray-700 text-base md:text-lg leading-relaxed font-normal pl-3">
+                    {item.meaning || item.englishTranslation || "No translation specified."}
+                  </p>
                 </div>
 
-                {/* --- ENGAGEMENT / VIEW COUNT (Only for staff) --- */}
-                {!hideInternalStats && safeStatus === "posted" && (
-                  <div className="mt-8 pt-8 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2">
-                    <InfoCard label="Total Engagement" value={`${item.viewCount || 0} Views`} icon={Eye} />
+                {/* VIEW STATS (Staff & Admin Only) */}
+                {isStaffOrAdmin && safeStatus === "posted" && (
+                  <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <InfoCard label="Total Public Views" value={`${item.viewCount || 0} Views`} icon={Eye} />
                   </div>
                 )}
 
                 {/* ENCODER: RETURNED STATUS BANNER */}
-                {safeStatus === "returned" && !isEditing && (
-                  <div className="mt-12 p-6 bg-red-50 border-l-4 border-red-500 rounded-2xl flex gap-4 items-start shadow-sm">
-                    <AlertCircle className="text-red-500 shrink-0" size={24} />
+                {safeStatus === "returned" && (
+                  <div className="p-5 bg-red-50 border-l-4 border-red-500 rounded-2xl flex gap-4 items-start shadow-xs">
+                    <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={22} />
                     <div className="flex-1">
-                      <h4 className="text-red-800 font-black text-xs uppercase tracking-widest">Moderator Feedback</h4>
-                      <p className="text-red-700 italic mt-1 font-medium">"{item.feedback || "Please check details."}"</p>
+                      <h4 className="text-red-900 font-bold text-xs uppercase tracking-wider">Moderator Revision Request</h4>
+                      <p className="text-red-700 italic text-sm mt-1">"{item.feedback || "Please check details and re-submit."}"</p>
                       {safeRole === "encoder" && (
-                        <button onClick={() => setIsEditing(true)} className="mt-4 flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all shadow-md shadow-red-200">
-                          <Edit3 size={14} /> Edit for Revision
+                        <button 
+                          onClick={() => setIsEditing(true)} 
+                          className="mt-3 flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all shadow-xs"
+                        >
+                          <Edit3 size={14} /> Edit Proverb
                         </button>
                       )}
                     </div>
                   </div>
                 )}
+
               </div>
             )}
 
-            {/* --- ROLE SPECIFIC PANELS --- */}
-
             {/* MODERATOR REVIEW PANEL */}
             {(safeRole === "moderator" || safeRole === "admin") && (safeStatus === "pending" || safeStatus === "pending_moderation" || isPending) && !item.isDeleted && (
-              <div className="mt-12 pt-8 border-t-2 border-dashed border-[#E09F26]/20 bg-amber-50/30 p-6 rounded-[32px]">
-                <h3 className="text-lg font-bold text-[#4A0C16] mb-4 flex items-center gap-2">
-                  <MessageSquare size={20} className="text-[#E09F26]" /> Review Decision
+              <div className="mt-8 pt-6 border-t border-dashed border-[#E09F26]/40 bg-amber-50/50 p-6 rounded-2xl">
+                <h3 className="text-sm font-bold text-[#4A0C16] mb-3 flex items-center gap-2">
+                  <MessageSquare size={18} className="text-[#E09F26]" /> Moderator Evaluation
                 </h3>
                 <textarea
-                  placeholder="Write feedback if returning to encoder..."
+                  placeholder="Provide feedback if returning for changes..."
                   value={feedback}
                   onChange={(e) => setFeedback(e.target.value)}
-                  className="w-full p-4 rounded-2xl border-2 border-[#E09F26]/10 focus:border-[#E09F26] outline-none bg-white text-sm mb-4 min-h-[100px] shadow-sm"
+                  className="w-full p-3.5 rounded-xl border border-[#E09F26]/30 focus:border-[#E09F26] outline-none bg-white text-sm mb-4 min-h-[90px] shadow-xs"
                 />
-                <div className="flex gap-4">
-                  <button onClick={() => triggerModeratorAction("posted")} disabled={processing || feedback.trim().length > 0} className={`flex-1 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg ${feedback.trim().length > 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' : 'bg-emerald-600 text-white shadow-emerald-100 hover:bg-emerald-700'}`}>
-                    <CheckCircle size={20} /> Approve & Post
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => triggerModeratorAction("posted")} 
+                    disabled={processing || feedback.trim().length > 0} 
+                    className={`flex-1 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs ${
+                      feedback.trim().length > 0 
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    }`}
+                  >
+                    <CheckCircle size={16} /> Approve & Post
                   </button>
-                  <button onClick={() => triggerModeratorAction("returned")} disabled={processing || !feedback.trim()} className={`flex-1 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg ${!feedback.trim() ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' : 'bg-amber-500 text-white shadow-amber-100 hover:bg-amber-600'}`}>
-                    <XCircle size={20} /> Return for Fixes
+                  <button 
+                    onClick={() => triggerModeratorAction("returned")} 
+                    disabled={processing || !feedback.trim()} 
+                    className={`flex-1 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs ${
+                      !feedback.trim() 
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                        : 'bg-amber-500 text-white hover:bg-amber-600'
+                    }`}
+                  >
+                    <XCircle size={16} /> Return to Encoder
                   </button>
                 </div>
               </div>
             )}
 
-            {/* ADMIN ACTION PANEL (TRASH & RESTORE) */}
+            {/* ADMIN ACTIONS (TRASH / RESTORE) */}
             {safeRole === "admin" && (
-              <div className="mt-12 pt-8 border-t border-gray-100 flex gap-4 justify-end">
+              <div className="mt-8 pt-6 border-t border-gray-100 flex gap-3 justify-end">
                 {!item.isDeleted ? (
-                  <button onClick={triggerSoftDelete} disabled={processing} className="flex items-center gap-2 px-6 py-3 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-xl font-bold transition-all border border-red-100 shadow-sm">
-                    <Trash2 size={18} /> Move to Trash Bin
+                  <button 
+                    onClick={triggerSoftDelete} 
+                    disabled={processing} 
+                    className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-xl text-xs font-bold transition-all border border-red-200"
+                  >
+                    <Trash2 size={16} /> Move to Trash
                   </button>
                 ) : (
                   <>
-                    <button onClick={triggerRestore} disabled={processing} className="flex-1 sm:flex-none items-center justify-center flex gap-2 px-6 py-3 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-xl font-bold transition-all border border-emerald-100 shadow-sm">
-                      <RotateCcw size={18} /> Restore Proverb
+                    <button 
+                      onClick={triggerRestore} 
+                      disabled={processing} 
+                      className="flex items-center gap-2 px-5 py-2.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-xl text-xs font-bold transition-all border border-emerald-200"
+                    >
+                      <RotateCcw size={16} /> Restore Proverb
                     </button>
-                    <button onClick={triggerHardDelete} disabled={processing} className="flex-1 sm:flex-none items-center justify-center flex gap-2 px-6 py-3 bg-red-600 text-white hover:bg-red-700 rounded-xl font-bold transition-all shadow-md shadow-red-200">
-                      <Trash2 size={18} /> Permanent Delete
+                    <button 
+                      onClick={triggerHardDelete} 
+                      disabled={processing} 
+                      className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white hover:bg-red-700 rounded-xl text-xs font-bold transition-all shadow-xs"
+                    >
+                      <Trash2 size={16} /> Permanent Delete
                     </button>
                   </>
                 )}
@@ -360,7 +455,7 @@ const ProverbDetailPage = ({ changePage, itemId, role, isPending }) => {
         </div>
       </div>
 
-      {/* 🔐 UNIVERSAL CONFIRMATION MODAL */}
+      {/* CONFIRMATION MODAL */}
       <ConfirmationModal isOpen={confirmConfig.isOpen} config={confirmConfig} onClose={closeConfirm} />
     </div>
   );

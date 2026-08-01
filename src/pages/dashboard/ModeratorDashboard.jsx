@@ -2,11 +2,13 @@ import React, { useEffect, useState, useMemo } from "react";
 import { auth, db } from "../../firebase/firebase";
 import { 
   doc, 
-  updateDoc
+  updateDoc,
+  deleteDoc
 } from "firebase/firestore";
 import { 
   Archive, Search, ChevronLeft, ChevronRight, Inbox, 
-  BookOpen, Clock, MessageSquare, ShieldCheck, Quote, Filter
+  BookOpen, Clock, MessageSquare, ShieldCheck, Quote, Filter,
+  Star, Trash2, RotateCcw
 } from "lucide-react";
 
 import { useToast } from "../../contexts/ToastContext";
@@ -30,6 +32,7 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
   const [brokenImages, setBrokenImages] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [feedbackStatusFilter, setFeedbackStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
 
   const isProverbView = tab === "published_proverbs" || tab === "proverb_validation";
@@ -37,7 +40,7 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
 
   const categoriesList = ["All", "Wisdom", "Relationships & Community", "Honor & Respect", "General Life Lessons"];
 
-  // ================= MODAL STATE (Used for Feedbacks) =================
+  // ================= MODAL STATE (Used for Feedbacks & Actions) =================
   const [confirmConfig, setConfirmConfig] = useState({
     isOpen: false,
     title: "",
@@ -50,13 +53,17 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
   const closeConfirm = () => setConfirmConfig({ ...confirmConfig, isOpen: false });
 
   // ================= CENTRALIZED DATA STREAM =================
-  // Replaced multiple onSnapshot listeners with the single source of truth
   const { 
     culturalItems = [], 
     proverbItems = [], 
     systemFeedbacks: systemFeedbackList = [],
     notifications = []
   } = useSystemData("moderator");
+
+  // Count active non-deleted system feedbacks for sidebar badge
+  const activeFeedbacksCount = useMemo(() => {
+    return systemFeedbackList.filter(fb => !fb.isDeleted && fb.status !== "deleted").length;
+  }, [systemFeedbackList]);
 
   // Process notifications locally for the unread count
   const unreadCount = useMemo(() => {
@@ -72,7 +79,7 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
     });
 
     return unreadItems.length;
-  }, [notifications, auth.currentUser]);
+  }, [notifications]);
 
   // ================= METRICS AGGREGATION =================
   const metrics = useMemo(() => {
@@ -129,21 +136,55 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
 
   const uniqueCategories = useMemo(() => ["all", ...new Set(culturalItems.map(item => item.category).filter(Boolean))], [culturalItems]);
 
-  // ================= IMPROVED FILTER ENGINE (With Metadata Search) =================
+  // ================= IMPROVED FILTER & SORT ENGINE =================
   const filteredActiveItems = useMemo(() => {
     const normalizedQuery = searchQuery.toLowerCase().trim();
-    let baseList = [];
 
-    // 1. Determine which base list to use
+    // 1. ENTERPRISE FEEDBACK SORTING (Filterable by Active/Status/Trash + Search)
+    if (tab === "feedbacks") {
+      return [...systemFeedbackList]
+        .filter(fb => {
+          const fbStatus = (fb.status || "pending").toLowerCase();
+          const isItemDeleted = fb.isDeleted === true || fbStatus === "deleted";
+
+          // Trash view: Only show soft-deleted feedback
+          if (feedbackStatusFilter === "deleted") {
+            if (!isItemDeleted) return false;
+          } else {
+            // Standard views: Exclude soft-deleted feedback
+            if (isItemDeleted) return false;
+
+            // Filter active feedback by pending/resolved status
+            if (feedbackStatusFilter !== "all" && fbStatus !== feedbackStatusFilter.toLowerCase()) {
+              return false;
+            }
+          }
+
+          // Search query check
+          const matchesSearch = !normalizedQuery || (
+            (fb.message || "").toLowerCase().includes(normalizedQuery) ||
+            (fb.userEmail || "").toLowerCase().includes(normalizedQuery) ||
+            (fb.userName || "").toLowerCase().includes(normalizedQuery) ||
+            (fb.feedbackType || "").toLowerCase().includes(normalizedQuery)
+          );
+
+          return matchesSearch;
+        })
+        .sort((a, b) => {
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
+          return timeB - timeA; // Newest on top
+        });
+    }
+
+    // 2. CULTURAL & PROVERB ITEM FILTERING
+    let baseList = [];
     if (tab === "cultural_validation") baseList = culturalItems.filter(i => ["pending", "uploaded"].includes((i.status || "").toLowerCase()));
     else if (tab === "proverb_validation") baseList = proverbItems.filter(i => ["pending_moderation", "pending", "uploaded", "submitted"].includes((i.status || "").toLowerCase()));
     else if (tab === "published_proverbs") baseList = metrics.provPosted;
     else if (tab === "archive") baseList = metrics.cultPosted;
-    else if (tab === "feedbacks") return systemFeedbackList;
 
-    // 2. Filter base list by Search Query (Including Tags) and Category
     return baseList.filter(item => {
-      // Logic for Metadata/Tag Search
       const hasTagMatch = Array.isArray(item.tags) && item.tags.some(tag => tag.toLowerCase().includes(normalizedQuery));
       
       const matchesSearch = !normalizedQuery || 
@@ -153,7 +194,6 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
         (item.description || "").toLowerCase().includes(normalizedQuery) ||
         hasTagMatch;
 
-      // Logic for Category Filter
       const itemCategory = item.category || (isProverbView ? "General Life Lessons" : "Uncategorized");
       const matchesCategory = 
         selectedCategory.toLowerCase() === "all" || 
@@ -161,13 +201,16 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
 
       return matchesSearch && matchesCategory;
     });
-  }, [tab, culturalItems, proverbItems, metrics, searchQuery, selectedCategory, systemFeedbackList, isProverbView]);
+  }, [tab, culturalItems, proverbItems, metrics, searchQuery, selectedCategory, feedbackStatusFilter, systemFeedbackList, isProverbView]);
 
-  useEffect(() => { setCurrentPage(1); }, [tab, searchQuery, selectedCategory]);
+  useEffect(() => { setCurrentPage(1); }, [tab, searchQuery, selectedCategory, feedbackStatusFilter]);
 
   const totalPages = Math.ceil(filteredActiveItems.length / itemsPerPage) || 1;
   const paginatedItems = useMemo(() => filteredActiveItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage), [filteredActiveItems, currentPage, itemsPerPage]);
 
+  // ================= FEEDBACK ACTION HANDLERS =================
+
+  // Toggle Pending <-> Resolved
   const handleToggleFeedbackStatus = (feedbackId, currentStatus) => {
     const newStatus = currentStatus === "resolved" ? "pending" : "resolved";
     const actionText = newStatus === "resolved" ? "Resolve" : "Unresolve";
@@ -188,12 +231,72 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
     });
   };
 
+  // Step 1: Soft Delete (Move to Trash filter)
+  const handleSoftDeleteFeedback = (feedbackId) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Move to Trash",
+      message: "This feedback will be moved to the Trash view. You can restore it or permanently delete it later.",
+      type: "warning",
+      confirmText: "Move to Trash",
+      onConfirm: async () => {
+        closeConfirm();
+        try {
+          await updateDoc(doc(db, "systemFeedbacks", feedbackId), { 
+            isDeleted: true,
+            status: "deleted" 
+          });
+          showToast("Feedback moved to Trash.", "info");
+        } catch (err) { showToast(err.message, "error"); }
+      }
+    });
+  };
+
+  // Step 2a: Restore from Trash
+  const handleRestoreFeedback = (feedbackId) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Restore Feedback",
+      message: "Are you sure you want to restore this feedback back to active status?",
+      type: "success",
+      confirmText: "Yes, Restore",
+      onConfirm: async () => {
+        closeConfirm();
+        try {
+          await updateDoc(doc(db, "systemFeedbacks", feedbackId), { 
+            isDeleted: false,
+            status: "pending" 
+          });
+          showToast("Feedback restored successfully.", "success");
+        } catch (err) { showToast(err.message, "error"); }
+      }
+    });
+  };
+
+  // Step 2b: Hard Delete Forever (Permanent Removal)
+  const handleHardDeleteFeedback = (feedbackId) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Permanently Delete Feedback",
+      message: "This action CANNOT be undone. This feedback will be permanently removed from the database.",
+      type: "danger",
+      confirmText: "Delete Permanently",
+      onConfirm: async () => {
+        closeConfirm();
+        try {
+          await deleteDoc(doc(db, "systemFeedbacks", feedbackId));
+          showToast("Feedback permanently deleted.", "success");
+        } catch (err) { showToast(err.message, "error"); }
+      }
+    });
+  };
+
   const moderatorLinks = [
     { value: "cultural_validation", label: "Pending Cultural Items", icon: <ShieldCheck size={16} />, badge: metrics.culturalPendingCount > 0 ? metrics.culturalPendingCount : undefined },
     { value: "proverb_validation", label: "Pending Proverbs", icon: <Clock size={16} />, badge: metrics.proverbPendingCount > 0 ? metrics.proverbPendingCount : undefined },
     { value: "published_proverbs", label: "Posted Proverbs", icon: <Quote size={16} />, badge: metrics.provPosted.length > 0 ? metrics.provPosted.length : undefined },
     { value: "archive", label: "Cultural Archive", icon: <Archive size={16} />, badge: metrics.cultPosted.length },
-    { value: "feedbacks", label: "System Feedbacks", icon: <MessageSquare size={16} />, badge: systemFeedbackList.length > 0 ? systemFeedbackList.length : undefined }
+    { value: "feedbacks", label: "System Feedbacks", icon: <MessageSquare size={16} />, badge: activeFeedbacksCount > 0 ? activeFeedbacksCount : undefined }
   ];
 
   return (
@@ -209,59 +312,104 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
       onLogout={triggerLogout} 
     >
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-8">
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
-          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Proverbs Today</p>
-          <div className="flex items-baseline gap-2">
-            <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{metrics.proverbsToday}</h2>
-            <span className="text-[10px] text-gray-400 font-bold uppercase">Posted Today</span>
-          </div>
-        </div>
+      {/* 📊 STAT CARDS & DIVIDER - Only rendered on Pending tabs */}
+      {(tab === "cultural_validation" || tab === "proverb_validation") && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
+            <div className="bg-white p-5 rounded-3xl shadow-xs border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
+              <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Proverbs Today</p>
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{metrics.proverbsToday}</h2>
+                <span className="text-[10px] text-gray-400 font-bold uppercase">Posted Today</span>
+              </div>
+            </div>
 
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
-          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Validated Today</p>
-          <div className="flex items-baseline gap-2">
-            <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{metrics.validatedToday}</h2>
-            <span className="text-[10px] text-gray-400 font-bold uppercase">Items reviewed</span>
-          </div>
-        </div>
+            <div className="bg-white p-5 rounded-3xl shadow-xs border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300">
+              <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider">Validated Today</p>
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-3xl font-black text-[#4A0C16] font-serif mt-1">{metrics.validatedToday}</h2>
+                <span className="text-[10px] text-gray-400 font-bold uppercase">Items reviewed</span>
+              </div>
+            </div>
 
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300 flex flex-col justify-center overflow-hidden">
-          <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider mb-1">Need to Validate</p>
-          <h2 className={`font-black text-[#4A0C16] font-serif truncate mt-1 ${metrics.pendingCount > 0 ? 'text-lg' : 'text-3xl'}`} title={metrics.oldestItemName}>
-            {metrics.oldestItemName}
-          </h2>
-          <div className="flex items-center gap-1.5 mt-1">
-            <Clock size={10} className={metrics.pendingCount > 0 ? "text-red-500" : "text-gray-400"} />
-            <span className={`text-[10px] font-bold uppercase ${metrics.pendingCount > 0 ? "text-red-600" : "text-gray-400"}`}>
-              {metrics.daysPassedStr}
-            </span>
+            <div className="bg-white p-5 rounded-3xl shadow-xs border border-[#4A0C16] hover:bg-gray-50 transition-all duration-300 flex flex-col justify-center overflow-hidden">
+              <p className="text-[#4A0C16] text-xs font-bold uppercase tracking-wider mb-1">Need to Validate</p>
+              <h2 className={`font-black text-[#4A0C16] font-serif truncate mt-1 ${metrics.pendingCount > 0 ? 'text-lg' : 'text-3xl'}`} title={metrics.oldestItemName}>
+                {metrics.oldestItemName}
+              </h2>
+              <div className="flex items-center gap-1.5 mt-1">
+                <Clock size={10} className={metrics.pendingCount > 0 ? "text-red-500" : "text-gray-400"} />
+                <span className={`text-[10px] font-bold uppercase ${metrics.pendingCount > 0 ? "text-red-600" : "text-gray-400"}`}>
+                  {metrics.daysPassedStr}
+                </span>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <hr className="my-8 border-t border-[#E09F26]/20 w-full" />
-
-      {tab !== "feedbacks" && (
-        <div className="flex flex-col sm:flex-row gap-4 mb-8 items-stretch sm:items-center justify-between">
-          <div className="relative flex-1 max-w-xl">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <input type="text" placeholder={isProverbView ? "Search wisdom or metadata tags..." : "Search entries or metadata tags..."} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-[#E09F26]/20 focus:outline-none focus:border-[#E09F26] text-sm font-medium text-[#4A0C16] bg-white shadow-sm transition-all" />
-          </div>
-          <div className="relative min-w-[240px]">
-            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-[#E09F26]" size={16} />
-            <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="w-full pl-11 pr-10 py-3.5 rounded-2xl border border-[#E09F26]/20 bg-white cursor-pointer text-sm font-bold text-[#4A0C16] appearance-none shadow-sm transition-all">
-              {isProverbView ? categoriesList.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Proverb Kinds" : cat}</option>) : uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === "all" ? "All Categories" : cat}</option>)}
-            </select>
-          </div>
-        </div>
+          <hr className="my-5 border-t border-[#E09F26]/20 w-full" />
+        </>
       )}
 
+      {/* 🔍 SEARCH & FILTER BAR */}
+      <div className="flex flex-col sm:flex-row gap-4 mb-5 items-stretch sm:items-center justify-between">
+        <div className="relative flex-1 max-w-xl">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <input 
+            type="text" 
+            placeholder={
+              tab === "feedbacks" 
+                ? "Search feedback messages, emails, or tags..." 
+                : isProverbView 
+                  ? "Search wisdom or metadata tags..." 
+                  : "Search entries or metadata tags..."
+            } 
+            value={searchQuery} 
+            onChange={(e) => setSearchQuery(e.target.value)} 
+            className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-[#E09F26]/20 focus:outline-none focus:border-[#E09F26] text-sm font-medium text-[#4A0C16] bg-white shadow-xs transition-all" 
+          />
+        </div>
+
+        {tab === "feedbacks" ? (
+          <div className="relative min-w-[240px]">
+            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-[#E09F26]" size={16} />
+            <select 
+              value={feedbackStatusFilter} 
+              onChange={(e) => setFeedbackStatusFilter(e.target.value)} 
+              className="w-full pl-11 pr-10 py-3.5 rounded-2xl border border-[#E09F26]/20 bg-white cursor-pointer text-sm font-bold text-[#4A0C16] appearance-none shadow-xs transition-all"
+            >
+              <option value="all">All Active Feedback</option>
+              <option value="pending">⏳ Pending Only</option>
+              <option value="resolved">✓ Resolved Only</option>
+              <option value="deleted">🗑️ Deleted / Trash</option>
+            </select>
+          </div>
+        ) : (
+          <div className="relative min-w-[240px]">
+            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-[#E09F26]" size={16} />
+            <select 
+              value={selectedCategory} 
+              onChange={(e) => setSelectedCategory(e.target.value)} 
+              className="w-full pl-11 pr-10 py-3.5 rounded-2xl border border-[#E09F26]/20 bg-white cursor-pointer text-sm font-bold text-[#4A0C16] appearance-none shadow-xs transition-all"
+            >
+              {isProverbView 
+                ? categoriesList.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Proverb Kinds" : cat}</option>) 
+                : uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === "all" ? "All Categories" : cat}</option>)
+              }
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* CONTENT GRID */}
       <div className="min-h-[400px]">
         {paginatedItems.length === 0 ? (
           <div className="bg-white/60 p-16 rounded-3xl text-center border border-[#E09F26]/15 flex flex-col items-center justify-center">
             <Inbox className="w-12 h-12 text-gray-300 mb-3" />
-            <p className="text-gray-500 text-sm font-medium">No records found matching your current filter.</p>
+            <p className="text-gray-500 text-sm font-medium">
+              {tab === "feedbacks" && feedbackStatusFilter === "deleted" 
+                ? "Trash is empty. No deleted feedback found." 
+                : "No records found matching your current filter."}
+            </p>
           </div>
         ) : (
           <div className={`grid gap-5 animate-fadeIn ${
@@ -269,6 +417,7 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
             tab === "feedbacks" ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4" : 
             "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:!grid-cols-5"
           }`}>
+            {/* CULTURAL ITEMS */}
             {(tab === "cultural_validation" || tab === "archive") && paginatedItems.map(item => (
               <div key={item.id} onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "moderator", isPending: tab === "cultural_validation" })} className="bg-white rounded-3xl overflow-hidden border border-[#E09F26]/20 flex flex-col hover:border-[#E09F26]/50 hover:shadow-lg cursor-pointer transition-all group">
                 <div className="h-36 relative bg-gray-50 border-b">
@@ -289,6 +438,7 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
               </div>
             ))}
 
+            {/* PROVERB ITEMS */}
             {(isProverbView) && paginatedItems.map(item => (
               <div key={item.id} onClick={() => changePage("proverbdetail", { itemId: item.id, fromPage: "dashboard", role: "moderator", isPending: tab === "proverb_validation" })} className="bg-white rounded-2xl flex flex-col border border-[#E09F26]/20 hover:border-[#E09F26]/80 hover:shadow-lg transition-all h-[220px] p-6 cursor-pointer group relative overflow-hidden">
                 <div className="flex justify-between items-start mb-3">
@@ -308,45 +458,145 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
               </div>
             ))}
 
-            {tab === "feedbacks" && paginatedItems.map(fb => (
-              <div key={fb.id} className="bg-white rounded-2xl flex flex-col shadow-xs border border-[#E09F26]/20 p-4 h-48">
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="text-[10px] font-bold text-[#4A0C16] truncate pr-2">{fb.userEmail}</h4>
-                  <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${fb.status === 'resolved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{fb.status}</span>
-                </div>
-                <div className="flex-1 bg-gray-50 p-3 rounded-lg border border-gray-100 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-                  <p className="text-gray-600 text-[11px] italic pr-1">"{fb.message}"</p>
-                </div>
-                <button 
-                  onClick={() => handleToggleFeedbackStatus(fb.id, fb.status)} 
-                  className={`w-full mt-3 py-2 rounded-xl text-[10px] font-bold transition-colors ${
-                    fb.status === "resolved" 
-                    ? "bg-emerald-600 text-white hover:bg-emerald-700" 
-                    : "bg-[#4A0C16] text-white hover:bg-[#31080E]"
+            {/* UPGRADED ENTERPRISE FEEDBACK CARDS */}
+            {tab === "feedbacks" && paginatedItems.map(fb => {
+              const isBug = fb.feedbackType === "Bug Report";
+              const isLowRating = (fb.rating || 5) <= 2;
+              const isUrgent = isBug || isLowRating;
+              const isDeleted = fb.isDeleted === true || fb.status === "deleted";
+
+              const formattedDate = fb.createdAt?.toDate 
+                ? fb.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                : "Just now";
+
+              return (
+                <div 
+                  key={fb.id} 
+                  className={`bg-white rounded-2xl flex flex-col shadow-xs border p-4 h-64 transition-all hover:shadow-lg relative overflow-hidden ${
+                    isUrgent && !isDeleted && fb.status !== "resolved" 
+                      ? "border-red-300 ring-1 ring-red-200" 
+                      : "border-[#E09F26]/20"
                   }`}
                 >
-                  {fb.status === "resolved" ? 'Resolved ✓' : 'Resolve'}
-                </button>
-              </div>
-            ))}
+                  {/* CARD HEADER */}
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex flex-col truncate pr-2">
+                      <h4 className="text-xs font-bold text-[#4A0C16] truncate" title={fb.userEmail}>
+                        {fb.userName || fb.userEmail || "Anonymous User"}
+                      </h4>
+                      <span className="text-[9px] text-gray-400 font-medium">{formattedDate}</span>
+                    </div>
+
+                    {/* STATUS BADGE + SOFT DELETE ICON */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {!isDeleted && (
+                        <button 
+                          onClick={() => handleSoftDeleteFeedback(fb.id)} 
+                          title="Move to Trash"
+                          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                      <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md border shrink-0 ${
+                        isDeleted 
+                          ? 'bg-red-50 text-red-700 border-red-200'
+                          : fb.status === 'resolved' 
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}>
+                        {isDeleted ? 'In Trash 🗑️' : fb.status === 'resolved' ? 'Resolved ✓' : 'Pending'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* RATING & PRIORITY TAGS */}
+                  <div className="flex items-center justify-between mb-2.5 gap-2">
+                    {/* Star Rating Display */}
+                    <div className="flex items-center gap-1 bg-[#FEF9C3]/80 px-2 py-1 rounded-xl border border-[#E09F26]/30">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Star
+                          key={s}
+                          size={11}
+                          className={`${
+                            s <= (fb.rating || 5)
+                              ? "fill-[#E09F26] text-[#E09F26]"
+                              : "text-gray-300"
+                          }`}
+                        />
+                      ))}
+                      <span className="text-[10px] font-black text-[#4A0C16] ml-0.5">{fb.rating || 5}.0</span>
+                    </div>
+
+                    {/* Priority Badge */}
+                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-lg shrink-0 ${
+                      isUrgent && !isDeleted && fb.status !== 'resolved'
+                        ? "bg-red-100 text-red-700 border border-red-200" 
+                        : "bg-gray-100 text-gray-600"
+                    }`}>
+                      {isUrgent && !isDeleted && fb.status !== 'resolved' ? "🔴 Urgent" : fb.feedbackType || "General"}
+                    </span>
+                  </div>
+
+                  {/* MESSAGE BODY */}
+                  <div className="flex-1 bg-gray-50 p-3 rounded-xl border border-gray-100 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300">
+                    <p className="text-gray-700 text-xs italic pr-1 leading-relaxed">
+                      "{fb.message}"
+                    </p>
+                  </div>
+
+                  {/* ACTION BUTTONS */}
+                  {isDeleted ? (
+                    /* Trash View Actions: Restore or Hard Delete */
+                    <div className="flex gap-2 mt-3">
+                      <button 
+                        onClick={() => handleRestoreFeedback(fb.id)} 
+                        className="flex-1 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-xs flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <RotateCcw size={13} /> Restore
+                      </button>
+                      <button 
+                        onClick={() => handleHardDeleteFeedback(fb.id)} 
+                        className="flex-1 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white transition-all shadow-xs flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 size={13} /> Delete Forever
+                      </button>
+                    </div>
+                  ) : (
+                    /* Active View Actions: Resolve / Reopen */
+                    <button 
+                      onClick={() => handleToggleFeedbackStatus(fb.id, fb.status)} 
+                      className={`w-full mt-3 py-2 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
+                        fb.status === "resolved" 
+                          ? "bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200" 
+                          : "bg-[#4A0C16] text-white hover:bg-[#31080E]"
+                      }`}
+                    >
+                      {fb.status === "resolved" ? 'Reopen Ticket ↺' : 'Mark as Resolved ✓'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
+      {/* PAGINATION CONTROLS */}
       {totalPages > 1 && (
         <div className="mt-10 pt-6 border-t border-[#E09F26]/10 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-gray-400 font-medium">
             Showing <span className="font-bold text-[#4A0C16]">{Math.min(currentPage * itemsPerPage, filteredActiveItems.length)}</span> of <span className="font-bold text-[#4A0C16]">{filteredActiveItems.length}</span>
           </p>
           <div className="flex items-center gap-2 w-full sm:w-auto justify-center">
-            <button disabled={currentPage <= 1} onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-sm">
+            <button disabled={currentPage <= 1} onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-xs cursor-pointer">
               <ChevronLeft size={18} />
             </button>
             <div className="flex flex-col items-center flex-1 max-w-[250px] w-full px-4">
               <span className="text-xs font-bold text-[#4A0C16] font-mono mb-2 uppercase tracking-widest">Page {currentPage} of {totalPages}</span>
               <input type="range" min="1" max={totalPages} value={currentPage} onChange={(e) => setCurrentPage(Number(e.target.value))} className="w-full h-1.5 bg-[#E09F26]/30 rounded-lg appearance-none cursor-pointer accent-[#4A0C16]" />
             </div>
-            <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-sm">
+            <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} className="p-2.5 rounded-xl bg-white border border-[#E09F26]/30 text-[#4A0C16] disabled:opacity-40 hover:bg-gray-50 transition shadow-xs cursor-pointer">
               <ChevronRight size={18} />
             </button>
           </div>
