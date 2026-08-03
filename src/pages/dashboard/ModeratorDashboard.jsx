@@ -392,7 +392,7 @@ const ModeratorDashboard = ({ changePage, triggerLogout }) => {
               className="w-full pl-11 pr-10 py-3.5 rounded-2xl border border-[#E09F26]/20 bg-white cursor-pointer text-sm font-bold text-[#4A0C16] appearance-none shadow-xs transition-all"
             >
               {isProverbView 
-                ? categoriesList.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Proverb Kinds" : cat}</option>) 
+                ? categoriesList.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Categories" : cat}</option>) 
                 : uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === "all" ? "All Categories" : cat}</option>)
               }
             </select>

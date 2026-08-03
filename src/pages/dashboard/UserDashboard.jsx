@@ -552,7 +552,7 @@ const UserDashboard = ({
               {/* Dynamic Keywords */}
               {popularKeywords.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2 text-xs text-[#4A0C16]/70 px-1 pt-1">
-                  <span className="font-semibold text-gray-400 uppercase tracking-wider text-[11px]">Most Searched:</span>
+                  <span className="font-semibold text-gray-400 uppercase tracking-wider text-[11px]">Popular Topics:</span>
                   {popularKeywords.map((keyword) => (
                     <button
                       key={keyword}

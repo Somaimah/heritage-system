@@ -138,7 +138,7 @@ const MasterDashboardShell = ({
               <BookOpen size={20} className="text-[#E09F26]" />
             </div>
             <div>
-              <h1 className="text-sm font-bold tracking-wide font-serif text-[#FDF5E6] capitalize leading-tight">{userRole} Workspace</h1>
+              <h1 className="text-sm font-bold tracking-wide font-serif text-[#FDF5E6] capitalize leading-tight">{userRole} Dashboard</h1>
               <p className="text-[9px] tracking-widest text-[#E09F26] uppercase font-bold leading-none mt-0.5">Digital Archive</p>
             </div>
           </div>
@@ -276,8 +276,8 @@ const MasterDashboardShell = ({
       <div className="flex-1 flex flex-col min-w-0">
         <header className="bg-[#E09F26] h-[73px] px-6 lg:px-10 flex items-center justify-between border-b border-[#4A0C16]/20 sticky top-0 z-40 shadow-md shrink-0">
           <div>
-            <p className="text-[10px] font-extrabold text-[#4A0C16]/60 uppercase tracking-widest leading-none">Active Workspace</p>
-            <h2 className="text-sm font-black font-serif text-[#4A0C16] capitalize tracking-wide mt-0.5 leading-tight">{activeTab} View Console</h2>
+            <p className="text-[10px] font-extrabold text-[#4A0C16]/60 uppercase tracking-widest leading-none">Current Section</p>
+            <h2 className="text-sm font-black font-serif text-[#4A0C16] capitalize tracking-wide mt-0.5 leading-tight">{activeTab}</h2>
           </div>
           <div className="flex items-center gap-3">
             {isStandardUser && <LanguageSwitcher />}

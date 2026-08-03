@@ -174,7 +174,7 @@ const NotificationsPage = ({ changePage, params }) => {
               <h1 className="text-2xl font-bold tracking-wide font-serif text-[#FDF5E6]">
                 Notifications
               </h1>
-              <p className="text-xs tracking-widest text-[#E09F26] uppercase font-semibold">User Activity Inbox</p>
+              <p className="text-xs tracking-widest text-[#E09F26] uppercase font-semibold">Recent Updates</p>
             </div>
           </div>
           
@@ -186,7 +186,7 @@ const NotificationsPage = ({ changePage, params }) => {
                 className="bg-[#E09F26]/20 hover:bg-[#E09F26]/40 border border-[#E09F26]/30 text-[#E09F26] hover:text-white px-3 py-2 rounded-xl flex items-center gap-2 font-bold transition duration-300 text-sm shadow-sm"
               >
                 <CheckCheck size={18} /> 
-                <span className="hidden sm:inline">Mark All Read</span>
+                <span className="hidden sm:inline">Mark All as Read</span>
               </button>
             )}
 

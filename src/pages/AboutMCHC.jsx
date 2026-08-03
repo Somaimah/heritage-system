@@ -111,7 +111,7 @@ const AboutMCHC = ({ changePage }) => {
             onClick={() => changePage("landing")}
             className="px-8 py-3 bg-[#E09F26] text-[#4A0C16] font-bold rounded-lg hover:bg-[#C88A21] hover:shadow-lg transition-all active:scale-95 uppercase tracking-wide"
           >
-            Return to Archive
+            Return
           </button>
         </section>
 

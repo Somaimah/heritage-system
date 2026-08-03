@@ -17,9 +17,9 @@ const LandingPage = ({ changePage }) => {
   const heroImages = [mchcBuilding, mchcBuilding2, mchcBuilding3];
   const [heroIndex, setHeroIndex] = useState(0);
 
-  // 2. Derive Featured Items from Global State
+  // 2. Derive Featured Items for fallback images
   const featuredItems = useMemo(() => {
-    return culturalItems.filter(item => item.isFeatured && item.status === "posted");
+    return (culturalItems || []).filter(item => item.isFeatured || item.status === "posted");
   }, [culturalItems]);
 
   // Hero Image Timer
@@ -30,12 +30,19 @@ const LandingPage = ({ changePage }) => {
     return () => clearInterval(timer);
   }, [heroImages.length]);
 
-  // Handle Search Submission (Placeholder for future filtering)
+  // Functional Search Handler (Passes search term to Overview)
   const handleSearch = (e) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      changePage("overview"); // Later, you'll want to pass searchQuery here!
+      changePage("overview", searchQuery.trim());
+    } else {
+      changePage("overview");
     }
+  };
+
+  // Core Repository Click Handler (Pre-filters Category)
+  const handleCategoryClick = (categoryName) => {
+    changePage("overview", "", categoryName);
   };
 
   return (
@@ -89,7 +96,7 @@ const LandingPage = ({ changePage }) => {
             />
             <button 
               type="submit"
-              className="bg-[#4A0C16] hover:bg-[#31080E] text-white px-6 py-3 rounded-xl font-bold transition-colors"
+              className="bg-[#4A0C16] hover:bg-[#31080E] text-white px-6 py-3 rounded-xl font-bold transition-colors cursor-pointer"
             >
               Search
             </button>
@@ -98,7 +105,7 @@ const LandingPage = ({ changePage }) => {
           {/* High-Contrast Gold Button */}
           <button
             onClick={() => changePage("overview")}
-            className="group relative inline-flex items-center justify-center gap-3 bg-[#E09F26] hover:bg-[#c98b1c] text-[#4A0C16] font-sans text-lg font-black tracking-wider uppercase px-12 py-4 rounded-xl transition-all duration-300 shadow-[0_0_25px_rgba(224,159,38,0.4)] hover:shadow-[0_0_35px_rgba(224,159,38,0.7)] hover:-translate-y-1"
+            className="group relative inline-flex items-center justify-center gap-3 bg-[#E09F26] hover:bg-[#c98b1c] text-[#4A0C16] font-sans text-lg font-black tracking-wider uppercase px-12 py-4 rounded-xl transition-all duration-300 shadow-[0_0_25px_rgba(224,159,38,0.4)] hover:shadow-[0_0_35px_rgba(224,159,38,0.7)] hover:-translate-y-1 cursor-pointer"
           >
             Explore Archive
             <ArrowRight size={20} className="text-[#4A0C16] transform group-hover:translate-x-1.5 transition-transform duration-200" />
@@ -106,7 +113,7 @@ const LandingPage = ({ changePage }) => {
         </div>
       </section>
 
-      {/* 3. Mission Statement */}
+      {/* 3. MISSION STATEMENT */}
       <section className="py-20 px-8 bg-transparent">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
@@ -147,7 +154,7 @@ const LandingPage = ({ changePage }) => {
         </div>
       </section>
 
-      {/* 4. CORE REPOSITORIES */}
+      {/* 4. CORE REPOSITORIES WITH PICTURES */}
       <section className="py-20 px-8 bg-transparent border-y border-[#E09F26]/20">
         <div className="max-w-7xl mx-auto">
           <h3 className="text-4xl font-serif text-[#4A0C16] text-center mb-12 font-bold">
@@ -155,37 +162,50 @@ const LandingPage = ({ changePage }) => {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
-              { title: "Artifacts", desc: "Explore physical legacies, master brassworks, and traditional weaves.", icon: <Shield className="w-8 h-8 text-[#E09F26]" /> },
-              { title: "Publications", desc: "Access literary archives, academic research, and history journals.", icon: <BookOpen className="w-8 h-8 text-[#E09F26]" /> },
-              { title: "Historical Records", desc: "Browse validated official university histories, registries, and timelines.", icon: <History className="w-8 h-8 text-[#E09F26]" /> },
+              { 
+                title: "Artifacts", 
+                desc: "Explore physical legacies, master brassworks, and traditional weaves.", 
+                icon: <Shield className="w-8 h-8 text-[#E09F26]" />,
+                defaultImg: "https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?auto=format&fit=crop&q=80&w=800"
+              },
+              { 
+                title: "Publications", 
+                desc: "Access literary archives, academic research, and history journals.", 
+                icon: <BookOpen className="w-8 h-8 text-[#E09F26]" />,
+                defaultImg: "https://images.unsplash.com/photo-1457369804613-52c61a468e7d?auto=format&fit=crop&q=80&w=800"
+              },
+              { 
+                title: "Historical Records", 
+                desc: "Browse validated official university histories, registries, and timelines.", 
+                icon: <History className="w-8 h-8 text-[#E09F26]" />,
+                defaultImg: "https://images.unsplash.com/photo-1461360370896-922624d12aa1?auto=format&fit=crop&q=80&w=800"
+              },
             ].map((collection, index) => {
               
               const featuredForCategory = featuredItems.find(
                 (item) => item.category?.toLowerCase() === collection.title.toLowerCase()
               );
 
+              // Prioritize database image, fallback to high-quality default category photo
+              const cardImage = featuredForCategory?.imageUrl || collection.defaultImg;
+
               return (
                 <div
                   key={index}
-                  onClick={() => changePage("overview")}
+                  onClick={() => handleCategoryClick(collection.title)}
                   className="bg-white p-8 rounded-2xl shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer border border-[#E09F26]/30 group flex flex-col justify-between h-full"
                 >
                   <div>
-                    <div className="h-40 rounded-xl mb-6 overflow-hidden relative bg-gradient-to-br from-[#4A0C16] to-[#E09F26] flex items-center justify-center shadow-inner">
-                      {featuredForCategory?.imageUrl ? (
-                        <>
-                          <img 
-                            src={featuredForCategory.imageUrl} 
-                            alt={featuredForCategory.title} 
-                            className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500"
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-60" />
-                        </>
-                      ) : (
-                        <div className="p-4 bg-white/10 backdrop-blur-sm rounded-full border border-white/20 group-hover:scale-110 transition-transform duration-300">
-                          {collection.icon}
-                        </div>
-                      )}
+                    <div className="h-44 rounded-xl mb-6 overflow-hidden relative bg-gray-200 shadow-inner">
+                      <img 
+                        src={cardImage} 
+                        alt={collection.title} 
+                        className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+                      <div className="absolute bottom-3 left-3 p-2 bg-black/40 backdrop-blur-sm rounded-lg border border-white/20">
+                        {collection.icon}
+                      </div>
                     </div>
                     
                     <h4 className="text-2xl font-serif text-[#4A0C16] mb-2 font-bold">{collection.title}</h4>
@@ -202,7 +222,7 @@ const LandingPage = ({ changePage }) => {
         </div>
       </section>
 
-      {/* 5. About Section */}
+      {/* 5. ABOUT SECTION */}
       <section className="py-24 px-8 bg-transparent">
         <div className="max-w-4xl mx-auto text-center">
           <h3 className="text-4xl font-serif text-[#4A0C16] mb-8 font-bold">About the Archive</h3>
@@ -218,7 +238,7 @@ const LandingPage = ({ changePage }) => {
         </div>
       </section>
 
-      {/* 6. Footer */}
+      {/* 6. FOOTER */}
       <footer className="bg-[#4A0C16] text-white py-10 px-8 mt-auto">
         <div className="max-w-7xl mx-auto text-center flex flex-col items-center justify-center">
           <BookOpen className="w-8 h-8 text-[#E09F26] mb-4 opacity-80" />

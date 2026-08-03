@@ -85,7 +85,7 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="w-full pl-11 pr-10 py-3 bg-white rounded-2xl border border-[#E09F26]/30 appearance-none focus:outline-none focus:border-[#E09F26] focus:ring-4 focus:ring-[#E09F26]/10 text-sm font-bold text-[#4A0C16] shadow-sm cursor-pointer transition-all"
           >
-            {categories.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Proverb Kinds" : cat}</option>)}
+            {categories.map(cat => <option key={cat} value={cat}>{cat === "All" ? "All Categories" : cat}</option>)}
           </select>
           <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500 font-bold text-xs">▼</div>
         </div>
@@ -149,7 +149,7 @@ const ProverbPosted = ({ changePage, role, starredProverbs = [], onToggleStar })
 
                 <div className="mt-auto pt-2 border-t border-gray-50 text-right shrink-0 pointer-events-none">
                    <span className="text-[10px] font-bold text-[#E09F26] uppercase tracking-wider group-hover:text-[#4A0C16] transition-colors">
-                     Read Full Detail &rarr;
+                     Read More &rarr;
                    </span>
                 </div>
               </div>

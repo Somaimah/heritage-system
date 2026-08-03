@@ -196,7 +196,7 @@ const BookmarkPage = ({ changePage }) => {
         <div className="px-6 lg:px-10 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-wide font-serif text-[#FDF5E6]">{t("bookmarks.title", "Bookmarks")}</h1>
-            <p className="text-xs tracking-widest text-[#E09F26] uppercase font-semibold">Your Curated Heritage</p>
+            <p className="text-xs tracking-widest text-[#E09F26] uppercase font-semibold">Your Saved Items</p>
           </div>
           <button onClick={() => changePage("dashboard")} className="bg-white/10 hover:bg-white/20 border border-white/10 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-medium transition duration-300 text-sm">
             <ArrowLeft size={18} className="text-[#E09F26]" /> <span>Back to Dashboard</span>

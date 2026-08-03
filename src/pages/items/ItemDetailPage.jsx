@@ -270,7 +270,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
   const originVal = item.origin || item.geographicOrigin || item.location || item.place;
   if (originVal) {
     metadataCards.push({
-      label: "Geographic Origin",
+      label: "Origin",
       value: originVal,
       icon: ArrowLeft
     });
