@@ -425,7 +425,7 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
                   )}
 
                   <button onClick={() => changePage("itemdetail", { itemId: item.id, fromPage: "dashboard", role: "encoder" })} className="w-full mt-auto bg-gray-50 text-[#4A0C16] py-2.5 rounded-xl text-[10px] font-bold hover:bg-[#4A0C16] hover:text-white transition-all border border-gray-100 cursor-pointer">
-                    View & Edit
+                    View
                   </button>
                 </div>
               </div>
@@ -455,7 +455,7 @@ const EncoderDashboard = ({ user, changePage, triggerLogout }) => {
                 )}
 
                 <div className="mt-auto pt-3 border-t border-gray-50 flex justify-end">
-                   <span className="text-[9px] font-black text-[#E09F26] uppercase tracking-widest group-hover:text-[#4A0C16] transition-colors">Open Profile &rarr;</span>
+                   <span className="text-[9px] font-black text-[#E09F26] uppercase tracking-widest group-hover:text-[#4A0C16] transition-colors">View &rarr;</span>
                 </div>
               </div>
             ))}

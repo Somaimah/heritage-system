@@ -29,7 +29,7 @@ import {
   ArrowLeft, 
   Upload, 
   Save, 
-  Image as ImageIcon, 
+  ImageIcon, 
   FileText, 
   Eye, 
   ImageOff,
@@ -48,9 +48,11 @@ const UploadPage = ({ changePage, editItem }) => {
   const [description, setDescription] = useSessionStorage("upload_desc", "");
   const [tagsInput, setTagsInput] = useSessionStorage("upload_tags", ""); 
   const [era, setEra] = useSessionStorage("upload_era", ""); // 🟢 Universal Era/Year
+  const [source, setSource] = useSessionStorage("upload_source", ""); // 🟢 Universal Source / Provenance
   const [origin, setOrigin] = useSessionStorage("upload_origin", "");
   const [material, setMaterial] = useSessionStorage("upload_material", ""); // 🟢 Artifact Primary Material
   const [author, setAuthor] = useSessionStorage("upload_author", "");
+  const [language, setLanguage] = useSessionStorage("upload_language", ""); // 🟢 Language (Publications & Historical Records)
   const [recordType, setRecordType] = useSessionStorage("upload_recordType", "Fun Fact");
   const [imageUrl, setImageUrl] = useSessionStorage("upload_imageUrl", "");
   const [fileUrl, setFileUrl] = useSessionStorage("upload_fileUrl", "");
@@ -108,9 +110,11 @@ const UploadPage = ({ changePage, editItem }) => {
       setDescription(editItem.description || "");
       setTagsInput(editItem.tags ? editItem.tags.join(", ") : ""); 
       setEra(editItem.era || editItem.period || editItem.publicationYear || editItem.year || editItem.date || "");
+      setSource(editItem.source || editItem.provenance || "");
       setOrigin(editItem.origin || "");
       setMaterial(editItem.material || editItem.primaryMaterial || "");
       setAuthor(editItem.author || "");
+      setLanguage(editItem.language || "");
       setRecordType(editItem.recordType || "Fun Fact");
       setImageUrl(editItem.imageUrl || "");
       setFileUrl(editItem.fileUrl || "");
@@ -164,18 +168,20 @@ const UploadPage = ({ changePage, editItem }) => {
 
       const tagsArray = processTags(tagsInput);
 
+      // Build structured payload
       const data = {
         title,
         description,
         tags: tagsArray, 
         category,
         era, // 🟢 Included for ALL categories
+        source, // 🟢 Source / Provenance for ALL categories
         media: mediaAssets, 
         imageUrl, 
         fileUrl,  
         ...(category === "Artifact" && { origin, material }), // 🟢 Origin & Material for Artifacts
-        ...(category === "Publication" && { author }),
-        ...(category === "Historical Records" && { recordType }),
+        ...(category === "Publication" && { author, language }), // 🟢 Author & Language for Publications
+        ...(category === "Historical Records" && { recordType, language }), // 🟢 Record Classification & Language
         status: "pending", 
       };
       
@@ -225,8 +231,9 @@ const UploadPage = ({ changePage, editItem }) => {
       // Clear Session Storage
       const keysToRemove = [
         "upload_category", "upload_title", "upload_desc", "upload_tags", 
-        "upload_era", "upload_origin", "upload_material", "upload_author", 
-        "upload_recordType", "upload_imageUrl", "upload_fileUrl"
+        "upload_era", "upload_source", "upload_origin", "upload_material", 
+        "upload_author", "upload_language", "upload_recordType", 
+        "upload_imageUrl", "upload_fileUrl"
       ];
       keysToRemove.forEach(key => sessionStorage.removeItem(key));
 
@@ -329,6 +336,19 @@ const UploadPage = ({ changePage, editItem }) => {
                 />
               </div>
 
+              {/* 🟢 UNIVERSAL FIELD: SOURCE / PROVENANCE */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
+                  Source / Provenance
+                </label>
+                <input 
+                  className="w-full border border-gray-200 p-3.5 rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm font-medium text-gray-800" 
+                  placeholder="E.g., MCHC Physical Archives Cabinet B, Interview with Elder A., 1985..."
+                  value={source} 
+                  onChange={(e) => setSource(e.target.value)} 
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Metadata Tags</label>
                 <input 
@@ -340,7 +360,7 @@ const UploadPage = ({ changePage, editItem }) => {
               </div>
 
               {/* CATEGORY-SPECIFIC CONTEXT FIELDS */}
-              <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
+              <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100 space-y-4">
                 {category === "Artifact" && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -366,28 +386,52 @@ const UploadPage = ({ changePage, editItem }) => {
                 )}
 
                 {category === "Publication" && (
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Author / Researcher</label>
-                    <input 
-                      className="w-full border border-gray-200 p-3.5 bg-white rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm text-gray-800 font-medium" 
-                      placeholder="Name of scholars, collectors, or cultural authors..."
-                      value={author} 
-                      onChange={(e) => setAuthor(e.target.value)} 
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Author / Researcher</label>
+                      <input 
+                        className="w-full border border-gray-200 p-3.5 bg-white rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm text-gray-800 font-medium" 
+                        placeholder="Name of scholars, collectors, or cultural authors..."
+                        value={author} 
+                        onChange={(e) => setAuthor(e.target.value)} 
+                      />
+                    </div>
+                    {/* 🟢 PUBLICATION LANGUAGE */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Language</label>
+                      <input 
+                        className="w-full border border-gray-200 p-3.5 bg-white rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm text-gray-800 font-medium" 
+                        placeholder="E.g., Meranaw, English, Tagalog, Arabic..."
+                        value={language} 
+                        onChange={(e) => setLanguage(e.target.value)} 
+                      />
+                    </div>
                   </div>
                 )}
 
                 {category === "Historical Records" && (
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Record Classification</label>
-                    <select 
-                      className="w-full border border-gray-200 p-3.5 bg-white rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm text-gray-800 font-semibold cursor-pointer"
-                      value={recordType} 
-                      onChange={(e) => setRecordType(e.target.value)}
-                    >
-                      <option>Fun Fact</option>
-                      <option>Book</option>
-                    </select>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Record Classification</label>
+                      <select 
+                        className="w-full border border-gray-200 p-3.5 bg-white rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm text-gray-800 font-semibold cursor-pointer"
+                        value={recordType} 
+                        onChange={(e) => setRecordType(e.target.value)}
+                      >
+                        <option>Fun Fact</option>
+                        <option>Book</option>
+                      </select>
+                    </div>
+                    {/* 🟢 HISTORICAL RECORD LANGUAGE */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Language</label>
+                      <input 
+                        className="w-full border border-gray-200 p-3.5 bg-white rounded-xl focus:ring-2 focus:ring-[#E09F26]/20 focus:border-[#E09F26] outline-none transition-all text-sm text-gray-800 font-medium" 
+                        placeholder="E.g., Meranaw, English, Tagalog..."
+                        value={language} 
+                        onChange={(e) => setLanguage(e.target.value)} 
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -396,9 +440,14 @@ const UploadPage = ({ changePage, editItem }) => {
               <div className="space-y-4 pt-2">
                 
                 <div>
-                  <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">
-                    <ImageIcon size={14} className="text-[#E09F26]" /> Image Resource
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500">
+                      <ImageIcon size={14} className="text-[#E09F26]" /> Image Resource
+                    </label>
+                    <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+                      Formats: .JPG, .PNG, .WEBP (Max 5MB)
+                    </span>
+                  </div>
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <input 
@@ -436,9 +485,14 @@ const UploadPage = ({ changePage, editItem }) => {
                 </div>
 
                 <div>
-                  <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500 mb-2 mt-4">
-                    <FileText size={14} className="text-[#E09F26]" /> PDF Document (Optional)
-                  </label>
+                  <div className="flex items-center justify-between mb-2 mt-4">
+                    <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500">
+                      <FileText size={14} className="text-[#E09F26]" /> PDF Document (Optional)
+                    </label>
+                    <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+                      Format: .PDF (Max 25MB)
+                    </span>
+                  </div>
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <input 

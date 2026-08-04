@@ -28,7 +28,11 @@ import {
   Eye,
   Calendar,
   Hammer,
-  ArrowLeft,
+  MapPin,
+  Globe,
+  User,
+  Quote,
+  Tag,
   Volume2,
   ExternalLink,
   Image as ImageIcon
@@ -49,6 +53,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
   const [item, setItem] = useState(null);
   const [bookmarked, setBookmarked] = useState(false);
   const [previewImage, setPreviewImage] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -256,7 +261,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
     });
   }
 
-  // 2. Primary Material (Renders whenever material data exists in Firestore)
+  // 2. Primary Material
   const materialVal = item.material || item.primaryMaterial || item.materials;
   if (materialVal) {
     metadataCards.push({
@@ -272,7 +277,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
     metadataCards.push({
       label: "Origin",
       value: originVal,
-      icon: ArrowLeft
+      icon: MapPin
     });
   }
 
@@ -284,11 +289,39 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
         ? "Author / Publisher" 
         : "Archivist / Author",
       value: authorVal,
-      icon: Edit
+      icon: User
     });
   }
 
-  // 5. Engagement Stats
+  // 5. Language (🟢 Publication & Historical Record Field)
+  if (item.language) {
+    metadataCards.push({
+      label: "Language",
+      value: item.language,
+      icon: Globe
+    });
+  }
+
+  // 6. Source / Provenance (🟢 Universal Field)
+  const sourceVal = item.source || item.provenance;
+  if (sourceVal) {
+    metadataCards.push({
+      label: "Source / Provenance",
+      value: sourceVal,
+      icon: Quote
+    });
+  }
+
+  // 7. Record Classification / Type (🟢 Historical Records Field)
+  if (item.recordType) {
+    metadataCards.push({
+      label: "Record Classification",
+      value: item.recordType,
+      icon: Tag
+    });
+  }
+
+  // 8. Engagement Stats
   if (!hideInternalStats && safeStatus === "posted") {
     metadataCards.push({
       label: "Engagement",
@@ -320,11 +353,12 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
             {/* LEFT COLUMN: VISUALS & MEDIA */}
             <div className="space-y-6">
               <div className="relative overflow-hidden rounded-3xl border-2 border-white bg-gray-100 shadow-xl group">
-                {primaryVisual?.type === 'image' ? (
+                {primaryVisual?.type === 'image' && !imageError ? (
                   <div className="cursor-zoom-in" onClick={() => setPreviewImage(primaryVisual.url)}>
                     <img 
                       src={primaryVisual.url} 
                       alt="Primary Heritage Media" 
+                      onError={() => setImageError(true)}
                       className="w-full h-[520px] object-cover transition-transform duration-700 group-hover:scale-105" 
                     />
                     <div className="absolute bottom-4 right-4 bg-black/50 backdrop-blur-md text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
@@ -366,7 +400,7 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
                           <div className="bg-gray-50 border border-gray-100 p-6 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
                             <div className="flex items-center gap-4">
                                <div className="bg-[#4A0C16]/10 p-4 rounded-full text-[#4A0C16]">
-                                  <FileText size={24} />
+                                 <FileText size={24} />
                                </div>
                                <div>
                                  <h4 className="font-bold text-[#4A0C16] text-sm">Historical Manuscript</h4>
@@ -401,13 +435,24 @@ const ItemDetailPage = ({ changePage, itemId, fromPage, role }) => {
               </div>
               
               <div className="space-y-6 flex-1 flex flex-col">
-                <section>
-                    <h3 className="text-xs font-bold uppercase tracking-widest text-[#E09F26] mb-3 flex items-center gap-2">
+                <section className="space-y-3">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-[#E09F26] flex items-center gap-2">
                         <div className="h-px bg-[#E09F26]/30 flex-1"></div> Description <div className="h-px bg-[#E09F26]/30 flex-1"></div>
                     </h3>
                     <div className="bg-gray-50/50 border border-gray-100 rounded-2xl p-6 whitespace-pre-wrap leading-relaxed text-gray-700 text-sm shadow-inner min-h-[120px]">
                       {item.description || "Description pending archival update."}
                     </div>
+
+                    {/* METADATA TAGS BADGES */}
+                    {Array.isArray(item.tags) && item.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {item.tags.map((tag, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 bg-[#FEF9C3]/60 text-[#4A0C16] px-3 py-1 rounded-lg text-[11px] font-semibold border border-[#E09F26]/20">
+                            <Tag size={10} className="text-[#E09F26]" /> #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                 </section>
 
                 {/* DYNAMICALLY RENDERED METADATA CARDS */}
